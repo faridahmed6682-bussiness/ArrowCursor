@@ -208,6 +208,121 @@ class ArrowCursorIME : InputMethodService() {
                 sendCommand("scroll", direction = -1f)
                 true
             }
+            // Home / End: in a text field they move the text cursor
+            // (computer-like); anywhere else they scroll to the very
+            // top / bottom of the page (a long swipe).
+            KeyEvent.KEYCODE_MOVE_HOME -> {
+                if (typing) {
+                    super.onKeyDown(keyCode, event)
+                } else {
+                    pendingPreKar = null
+                    pendingPreKarAfterHasant = false
+                    sendCommand("scroll", direction = 5f)
+                    true
+                }
+            }
+            KeyEvent.KEYCODE_MOVE_END -> {
+                if (typing) {
+                    super.onKeyDown(keyCode, event)
+                } else {
+                    pendingPreKar = null
+                    pendingPreKarAfterHasant = false
+                    sendCommand("scroll", direction = -5f)
+                    true
+                }
+            }
+            // Numpad as a second mouse (NumLock off): 8/2/4/6 move the
+            // pointer, 5 clicks, 7/1 jump to top/bottom, 9/3 page up/down.
+            // In a text field they are left alone, so numpad digits
+            // still type normally.
+            KeyEvent.KEYCODE_NUMPAD_8 -> {
+                if (typing) super.onKeyDown(keyCode, event)
+                else {
+                    pendingPreKar = null
+                    pendingPreKarAfterHasant = false
+                    sendCommand("move", dy = -speed)
+                    true
+                }
+            }
+            KeyEvent.KEYCODE_NUMPAD_2 -> {
+                if (typing) super.onKeyDown(keyCode, event)
+                else {
+                    pendingPreKar = null
+                    pendingPreKarAfterHasant = false
+                    sendCommand("move", dy = speed)
+                    true
+                }
+            }
+            KeyEvent.KEYCODE_NUMPAD_4 -> {
+                if (typing) super.onKeyDown(keyCode, event)
+                else {
+                    pendingPreKar = null
+                    pendingPreKarAfterHasant = false
+                    sendCommand("move", dx = -speed)
+                    true
+                }
+            }
+            KeyEvent.KEYCODE_NUMPAD_6 -> {
+                if (typing) super.onKeyDown(keyCode, event)
+                else {
+                    pendingPreKar = null
+                    pendingPreKarAfterHasant = false
+                    sendCommand("move", dx = speed)
+                    true
+                }
+            }
+            KeyEvent.KEYCODE_NUMPAD_5 -> {
+                if (typing) super.onKeyDown(keyCode, event)
+                else {
+                    sendCommand("click")
+                    true
+                }
+            }
+            KeyEvent.KEYCODE_NUMPAD_7 -> {
+                if (typing) super.onKeyDown(keyCode, event)
+                else {
+                    pendingPreKar = null
+                    pendingPreKarAfterHasant = false
+                    sendCommand("scroll", direction = 5f)
+                    true
+                }
+            }
+            KeyEvent.KEYCODE_NUMPAD_1 -> {
+                if (typing) super.onKeyDown(keyCode, event)
+                else {
+                    pendingPreKar = null
+                    pendingPreKarAfterHasant = false
+                    sendCommand("scroll", direction = -5f)
+                    true
+                }
+            }
+            KeyEvent.KEYCODE_NUMPAD_9 -> {
+                if (typing) super.onKeyDown(keyCode, event)
+                else {
+                    pendingPreKar = null
+                    pendingPreKarAfterHasant = false
+                    sendCommand("scroll", direction = 1f)
+                    true
+                }
+            }
+            KeyEvent.KEYCODE_NUMPAD_3 -> {
+                if (typing) super.onKeyDown(keyCode, event)
+                else {
+                    pendingPreKar = null
+                    pendingPreKarAfterHasant = false
+                    sendCommand("scroll", direction = -1f)
+                    true
+                }
+            }
+            KeyEvent.KEYCODE_NUMPAD_ENTER -> {
+                if (typing) {
+                    flushPendingPreKar()
+                    super.onKeyDown(keyCode, event)
+                } else {
+                    sendCommand("click")
+                    true
+                }
+            }
             else -> super.onKeyDown(keyCode, event)
         }
     }
@@ -217,6 +332,16 @@ class ArrowCursorIME : InputMethodService() {
             KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN,
             KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT,
             KeyEvent.KEYCODE_PAGE_UP, KeyEvent.KEYCODE_PAGE_DOWN -> true
+            KeyEvent.KEYCODE_MOVE_HOME, KeyEvent.KEYCODE_MOVE_END,
+            KeyEvent.KEYCODE_NUMPAD_8, KeyEvent.KEYCODE_NUMPAD_2,
+            KeyEvent.KEYCODE_NUMPAD_4, KeyEvent.KEYCODE_NUMPAD_6,
+            KeyEvent.KEYCODE_NUMPAD_5, KeyEvent.KEYCODE_NUMPAD_7,
+            KeyEvent.KEYCODE_NUMPAD_1, KeyEvent.KEYCODE_NUMPAD_9,
+            KeyEvent.KEYCODE_NUMPAD_3, KeyEvent.KEYCODE_NUMPAD_ENTER -> {
+                // In a text field these keys belong to the app (digits,
+                // text cursor); anywhere else this keyboard owns them.
+                if (isTextFieldFocused()) super.onKeyUp(keyCode, event) else true
+            }
             KeyEvent.KEYCODE_SPACE, KeyEvent.KEYCODE_ENTER,
             KeyEvent.KEYCODE_DPAD_CENTER -> {
                 if (isTextFieldFocused()) {

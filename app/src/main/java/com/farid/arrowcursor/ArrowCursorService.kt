@@ -281,6 +281,9 @@ class ArrowCursorService : AccessibilityService() {
             } else {
                 dispatchGesture(gesture, null, null)
             }
+            // Must return Unit: postDelayed needs a Runnable, and a
+            // () -> Boolean lambda is not one (CI #13).
+            Unit
         }
         if (hadHandle) {
             gestureHandler.postDelayed(doDispatch, 120)
