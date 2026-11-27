@@ -66,10 +66,6 @@ class ArrowCursorIME : InputMethodService() {
         sendCommand("longPress")
     }
 
-    companion object {
-        private const val LONG_PRESS_TIMEOUT_MS = 500L
-    }
-
     override fun onCreate() {
         super.onCreate()
         settings = CursorSettings(this)
@@ -761,6 +757,9 @@ class ArrowCursorIME : InputMethodService() {
 
     companion object {
         private const val KEY_LANGUAGE = "language"
+        // Hold-Space long-press timeout: a Space held past this long
+        // long-presses instead of clicking (see the fields above).
+        private const val LONG_PRESS_TIMEOUT_MS = 500L
         private const val HASANT = "্"
 
         // Pre-kars: typed BEFORE their consonant, held until the next key.
