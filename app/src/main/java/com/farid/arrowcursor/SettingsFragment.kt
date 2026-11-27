@@ -3,9 +3,11 @@ package com.farid.arrowcursor
 import android.graphics.Color
 import android.os.Bundle
 import android.view.View
+import android.widget.Button
 import android.widget.RadioGroup
 import android.widget.SeekBar
 import android.widget.TextView
+import android.widget.Toast
 import androidx.fragment.app.Fragment
 import com.google.android.material.switchmaterial.SwitchMaterial
 
@@ -116,6 +118,106 @@ class SettingsFragment : Fragment(R.layout.fragment_settings) {
         switchSnap.isChecked = settings.snapToButton
         switchSnap.setOnCheckedChangeListener { _, isChecked ->
             CursorSettings(requireContext()).snapToButton = isChecked
+        }
+
+        // Shift + arrow: what the key does (default: fine step).
+        val radioShiftArrow: RadioGroup = view.findViewById(R.id.radio_shift_arrow)
+        when (settings.shiftArrowAction) {
+            "scroll" -> radioShiftArrow.check(R.id.radio_shift_scroll)
+            "move" -> radioShiftArrow.check(R.id.radio_shift_move)
+            else -> radioShiftArrow.check(R.id.radio_shift_fine)
+        }
+        radioShiftArrow.setOnCheckedChangeListener { _, checkedId ->
+            val action = when (checkedId) {
+                R.id.radio_shift_scroll -> "scroll"
+                R.id.radio_shift_move -> "move"
+                else -> "fine"
+            }
+            CursorSettings(requireContext()).shiftArrowAction = action
+        }
+
+        // Ctrl + arrow: what the key does (default: scroll).
+        val radioCtrlArrow: RadioGroup = view.findViewById(R.id.radio_ctrl_arrow)
+        when (settings.ctrlArrowAction) {
+            "fine" -> radioCtrlArrow.check(R.id.radio_ctrl_fine)
+            "move" -> radioCtrlArrow.check(R.id.radio_ctrl_move)
+            else -> radioCtrlArrow.check(R.id.radio_ctrl_scroll)
+        }
+        radioCtrlArrow.setOnCheckedChangeListener { _, checkedId ->
+            val action = when (checkedId) {
+                R.id.radio_ctrl_fine -> "fine"
+                R.id.radio_ctrl_move -> "move"
+                else -> "scroll"
+            }
+            CursorSettings(requireContext()).ctrlArrowAction = action
+        }
+
+        // Snap delay: how long the pointer must sit still (default 1 s).
+        val radioSnapDelay: RadioGroup = view.findViewById(R.id.radio_snap_delay)
+        when (settings.snapDelayMs) {
+            500 -> radioSnapDelay.check(R.id.radio_snap_delay_500)
+            1500 -> radioSnapDelay.check(R.id.radio_snap_delay_1500)
+            2000 -> radioSnapDelay.check(R.id.radio_snap_delay_2000)
+            else -> radioSnapDelay.check(R.id.radio_snap_delay_1000)
+        }
+        radioSnapDelay.setOnCheckedChangeListener { _, checkedId ->
+            val delay = when (checkedId) {
+                R.id.radio_snap_delay_500 -> 500
+                R.id.radio_snap_delay_1500 -> 1500
+                R.id.radio_snap_delay_2000 -> 2000
+                else -> 1000
+            }
+            CursorSettings(requireContext()).snapDelayMs = delay
+        }
+
+        // Snap radius: 40..160 px, SeekBar max 120, progress = radius - 40.
+        val seekSnapRadius: SeekBar = view.findViewById(R.id.seek_snap_radius)
+        val textSnapRadiusValue: TextView = view.findViewById(R.id.text_snap_radius_value)
+        seekSnapRadius.max = 120
+        seekSnapRadius.progress = settings.snapRadiusPx - 40
+        textSnapRadiusValue.text =
+            "${settings.snapRadiusPx} ${getString(R.string.snap_radius_unit_px)}"
+        seekSnapRadius.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                val radius = progress + 40
+                CursorSettings(requireContext()).snapRadiusPx = radius
+                textSnapRadiusValue.text =
+                    "$radius ${getString(R.string.snap_radius_unit_px)}"
+            }
+
+            override fun onStartTrackingTouch(seekBar: SeekBar?) {
+                // No action needed.
+            }
+
+            override fun onStopTrackingTouch(seekBar: SeekBar?) {
+                // No action needed.
+            }
+        })
+
+        // Smooth pointer glide (accelerates while an arrow key is held).
+        val switchGlide: SwitchMaterial = view.findViewById(R.id.switch_glide)
+        switchGlide.isChecked = settings.glideEnabled
+        switchGlide.setOnCheckedChangeListener { _, isChecked ->
+            CursorSettings(requireContext()).glideEnabled = isChecked
+        }
+
+        // Numpad as a second mouse.
+        val switchNumpadMouse: SwitchMaterial = view.findViewById(R.id.switch_numpad_mouse)
+        switchNumpadMouse.isChecked = settings.numpadMouse
+        switchNumpadMouse.setOnCheckedChangeListener { _, isChecked ->
+            CursorSettings(requireContext()).numpadMouse = isChecked
+        }
+
+        // Reset every setting to the defaults Muse set.
+        val buttonResetDefaults: Button = view.findViewById(R.id.button_reset_defaults)
+        buttonResetDefaults.setOnClickListener {
+            CursorSettings(requireContext()).resetToDefaults()
+            Toast.makeText(
+                requireContext(),
+                getString(R.string.reset_defaults_toast),
+                Toast.LENGTH_SHORT,
+            ).show()
+            requireActivity().recreate()
         }
 
         // Language.

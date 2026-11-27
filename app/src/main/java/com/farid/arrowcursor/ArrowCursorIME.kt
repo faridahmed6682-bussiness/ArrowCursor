@@ -1,6 +1,8 @@
 package com.farid.arrowcursor
 
 import android.inputmethodservice.InputMethodService
+import android.os.Handler
+import android.os.Looper
 import android.text.InputType
 import android.view.KeyEvent
 import android.view.View
@@ -17,10 +19,15 @@ import android.widget.Toast
  * touch. The phone works exactly like a computer:
  * - Arrow keys move the pointer, like a mouse. Space/Enter click, except
  *   while a text field is focused, where they type normally.
- * - Shift+arrow = fine step (a tiny move, for small buttons).
- *   Ctrl+arrow = scroll in that direction (Up/Down = up/down,
- *   Left/Right = sideways). In a text field Shift+arrow selects text
- *   and Ctrl+arrow jumps by word, as on a computer.
+ *   HOLD Space (half a second) = LONG-PRESS at the pointer: it selects
+ *   text on a page, opens a context menu, or starts a drag — the plain
+ *   tap cannot do these, which is why "page select" did not work.
+ *   Enter always clicks immediately (no long-press).
+ * - Shift+arrow and Ctrl+arrow do what Settings says (defaults:
+ *   Shift = fine step, a tiny move for small buttons; Ctrl = scroll
+ *   in that direction, Up/Down = up/down, Left/Right = sideways).
+ *   In a text field Shift+arrow selects text and Ctrl+arrow jumps by
+ *   word, as on a computer.
  * - Letters type, in English or in Bengali with the Jatiya (National,
  *   BDS 1738:2018 = Bijoy) fixed layout: each key gives one Bengali
  *   character, Shift gives the second (j = ক, Shift+J = খ, g = ্ link
@@ -48,6 +55,21 @@ class ArrowCursorIME : InputMethodService() {
     private var pendingPreKar: String? = null
     private var pendingPreKarAfterHasant = false
 
+    // Hold-Space long-press: a quick Space tap clicks, holding Space
+    // past LONG_PRESS_TIMEOUT_MS long-presses instead (selects text on
+    // a page, opens a context menu, starts a drag). The click is sent
+    // on key-UP for a short press, so a hold is never also a click.
+    private val keyHandler = Handler(Looper.getMainLooper())
+    private var spaceLongPressFired = false
+    private val spaceLongPressRunnable = Runnable {
+        spaceLongPressFired = true
+        sendCommand("longPress")
+    }
+
+    companion object {
+        private const val LONG_PRESS_TIMEOUT_MS = 500L
+    }
+
     override fun onCreate() {
         super.onCreate()
         settings = CursorSettings(this)
@@ -70,8 +92,11 @@ class ArrowCursorIME : InputMethodService() {
         super.onFinishInput()
         pendingPreKar = null
         pendingPreKarAfterHasant = false
-        // Safety: if an arrow key was held when the input session ended,
-        // its key-up may never arrive — stop any smooth glide.
+        // Safety: if Space was held when the input session ended, its
+        // key-up may never arrive — drop the pending long-press so it
+        // cannot fire later, and stop any smooth glide.
+        keyHandler.removeCallbacks(spaceLongPressRunnable)
+        spaceLongPressFired = false
         sendCommand("moveStop", dx = 1f, dy = 1f)
     }
 
@@ -110,16 +135,64 @@ class ArrowCursorIME : InputMethodService() {
         val speed = settings.speedPx.toFloat()
         val typing = isTextFieldFocused()
         // Step sizes: plain arrow = normal step, Shift+arrow = fine
-        // step (for small buttons). Ctrl+arrow is scroll now (below),
-        // so the fine step is back on Shift (user, 2026-11-28).
+        // step (for small buttons) by default. What Shift+arrow and
+        // Ctrl+arrow DO comes from Settings (defaults: Shift = fine,
+        // Ctrl = scroll) — the user changes it in Settings, and the
+        // DPAD / numpad branches below call doArrowAction with it.
         val step = speed
         val fineStep = maxOf(2f, speed / 6f)
         val normalTick = 7f
         val fineTick = 2f
-        // Ctrl+arrow (and Ctrl+numpad-arrow) while NOT typing is
-        // scroll, not a system shortcut — let it fall through to the
-        // when below. In a text field Ctrl+arrow still passes through
-        // (word jump / selection), as before.
+        // What an arrow key does, from Settings. "scroll" = scroll in
+        // that direction (vertical for Up/Down, sideways for Left/Right).
+        // "fine" = tiny move (+ fine glide). "move" = normal move (+
+        // normal glide). When glide is OFF in Settings, only the
+        // immediate move is sent (on every key-down, repeats included)
+        // and no glide starts — so a held key still moves the pointer,
+        // one step per repeat, instead of gliding.
+        fun doArrowAction(action: String, dirX: Float, dirY: Float, repeatCount: Int) {
+            when (action) {
+                "scroll" -> {
+                    if (dirY != 0f) sendCommand("scroll", direction = -dirY)
+                    else sendCommand("hscroll", direction = -dirX)
+                }
+                "fine" -> {
+                    if (settings.glideEnabled) {
+                        if (repeatCount == 0) {
+                            sendCommand("move", dx = dirX * fineStep, dy = dirY * fineStep)
+                        }
+                        sendCommand("moveStart", dx = dirX * fineTick, dy = dirY * fineTick)
+                    } else {
+                        sendCommand("move", dx = dirX * fineStep, dy = dirY * fineStep)
+                    }
+                }
+                else -> { // "move"
+                    if (settings.glideEnabled) {
+                        if (repeatCount == 0) {
+                            sendCommand("move", dx = dirX * step, dy = dirY * step)
+                        }
+                        sendCommand("moveStart", dx = dirX * normalTick, dy = dirY * normalTick)
+                    } else {
+                        sendCommand("move", dx = dirX * step, dy = dirY * step)
+                    }
+                }
+            }
+        }
+        // Which modifier action applies to this arrow press (Settings;
+        // plain arrow is always "move"). Only used when NOT typing — in
+        // a text field Shift+arrow selects text and Ctrl+arrow jumps by
+        // word, as on a computer (handled by the pass-through above and
+        // the Shift pre-check below).
+        fun arrowAction(event: KeyEvent): String = when {
+            event.isShiftPressed -> settings.shiftArrowAction
+            event.isCtrlPressed -> settings.ctrlArrowAction
+            else -> "move"
+        }
+        // Ctrl+arrow (and Ctrl+numpad-arrow) while NOT typing is a
+        // pointer action from Settings (default: scroll), not a system
+        // shortcut — let it fall through to the when below. In a text
+        // field Ctrl+arrow still passes through (word jump / selection),
+        // as before.
         val isCtrlArrow = event.isCtrlPressed && !typing && (
             keyCode == KeyEvent.KEYCODE_DPAD_UP ||
                 keyCode == KeyEvent.KEYCODE_DPAD_DOWN ||
@@ -214,83 +287,47 @@ class ArrowCursorIME : InputMethodService() {
             KeyEvent.KEYCODE_DPAD_UP -> {
                 pendingPreKar = null
                 pendingPreKarAfterHasant = false
-                // Shift+Up = fine step (tiny move for small buttons).
-                // Ctrl+Up = scroll up. Plain Up = normal step; while
-                // the key is held the service glides the pointer
-                // smoothly (moveStart) instead of jumping on every
-                // key repeat.
-                when {
-                    event.isShiftPressed -> {
-                        if (event.repeatCount == 0) sendCommand("move", dy = -fineStep)
-                        sendCommand("moveStart", dy = -fineTick)
-                    }
-                    event.isCtrlPressed -> sendCommand("scroll", direction = 1f)
-                    else -> {
-                        if (event.repeatCount == 0) sendCommand("move", dy = -step)
-                        sendCommand("moveStart", dy = -normalTick)
-                    }
-                }
+                // Up: what it does (fine / scroll / move) comes from
+                // Settings via arrowAction; while held the service
+                // glides the pointer (moveStart) instead of jumping on
+                // every key repeat — unless glide is off in Settings.
+                doArrowAction(arrowAction(event), 0f, -1f, event.repeatCount)
                 true
             }
             KeyEvent.KEYCODE_DPAD_DOWN -> {
                 pendingPreKar = null
                 pendingPreKarAfterHasant = false
-                // Shift+Down = fine step. Ctrl+Down = scroll down.
-                when {
-                    event.isShiftPressed -> {
-                        if (event.repeatCount == 0) sendCommand("move", dy = fineStep)
-                        sendCommand("moveStart", dy = fineTick)
-                    }
-                    event.isCtrlPressed -> sendCommand("scroll", direction = -1f)
-                    else -> {
-                        if (event.repeatCount == 0) sendCommand("move", dy = step)
-                        sendCommand("moveStart", dy = normalTick)
-                    }
-                }
+                doArrowAction(arrowAction(event), 0f, 1f, event.repeatCount)
                 true
             }
             KeyEvent.KEYCODE_DPAD_LEFT -> {
                 pendingPreKar = null
                 pendingPreKarAfterHasant = false
-                // Shift+Left = fine step. Ctrl+Left = scroll left
-                // (sideways).
-                when {
-                    event.isShiftPressed -> {
-                        if (event.repeatCount == 0) sendCommand("move", dx = -fineStep)
-                        sendCommand("moveStart", dx = -fineTick)
-                    }
-                    event.isCtrlPressed -> sendCommand("hscroll", direction = 1f)
-                    else -> {
-                        if (event.repeatCount == 0) sendCommand("move", dx = -step)
-                        sendCommand("moveStart", dx = -normalTick)
-                    }
-                }
+                doArrowAction(arrowAction(event), -1f, 0f, event.repeatCount)
                 true
             }
             KeyEvent.KEYCODE_DPAD_RIGHT -> {
                 pendingPreKar = null
                 pendingPreKarAfterHasant = false
-                // Shift+Right = fine step. Ctrl+Right = scroll right
-                // (sideways).
-                when {
-                    event.isShiftPressed -> {
-                        if (event.repeatCount == 0) sendCommand("move", dx = fineStep)
-                        sendCommand("moveStart", dx = fineTick)
-                    }
-                    event.isCtrlPressed -> sendCommand("hscroll", direction = -1f)
-                    else -> {
-                        if (event.repeatCount == 0) sendCommand("move", dx = step)
-                        sendCommand("moveStart", dx = normalTick)
-                    }
-                }
+                doArrowAction(arrowAction(event), 1f, 0f, event.repeatCount)
                 true
             }
             KeyEvent.KEYCODE_SPACE -> {
                 if (typing) {
                     flushPendingPreKar()
                     super.onKeyDown(keyCode, event)
+                } else if (event.repeatCount == 0) {
+                    // Do NOT click yet: a quick tap clicks on key-UP, a
+                    // hold past 500 ms long-presses instead. Scheduling
+                    // only on the first down (repeats while held do
+                    // nothing — the long-press is already scheduled).
+                    spaceLongPressFired = false
+                    keyHandler.postDelayed(
+                        spaceLongPressRunnable,
+                        LONG_PRESS_TIMEOUT_MS,
+                    )
+                    true
                 } else {
-                    sendCommand("click")
                     true
                 }
             }
@@ -355,90 +392,50 @@ class ArrowCursorIME : InputMethodService() {
             // In a text field they are left alone, so numpad digits
             // still type normally.
             KeyEvent.KEYCODE_NUMPAD_8 -> {
-                if (typing) super.onKeyDown(keyCode, event)
+                if (typing || !settings.numpadMouse) super.onKeyDown(keyCode, event)
                 else {
                     pendingPreKar = null
                     pendingPreKarAfterHasant = false
-                    when {
-                        event.isShiftPressed -> {
-                            if (event.repeatCount == 0) sendCommand("move", dy = -fineStep)
-                            sendCommand("moveStart", dy = -fineTick)
-                        }
-                        event.isCtrlPressed -> sendCommand("scroll", direction = 1f)
-                        else -> {
-                            if (event.repeatCount == 0) sendCommand("move", dy = -step)
-                            sendCommand("moveStart", dy = -normalTick)
-                        }
-                    }
+                    doArrowAction(arrowAction(event), 0f, -1f, event.repeatCount)
                     true
                 }
             }
             KeyEvent.KEYCODE_NUMPAD_2 -> {
-                if (typing) super.onKeyDown(keyCode, event)
+                if (typing || !settings.numpadMouse) super.onKeyDown(keyCode, event)
                 else {
                     pendingPreKar = null
                     pendingPreKarAfterHasant = false
-                    when {
-                        event.isShiftPressed -> {
-                            if (event.repeatCount == 0) sendCommand("move", dy = fineStep)
-                            sendCommand("moveStart", dy = fineTick)
-                        }
-                        event.isCtrlPressed -> sendCommand("scroll", direction = -1f)
-                        else -> {
-                            if (event.repeatCount == 0) sendCommand("move", dy = step)
-                            sendCommand("moveStart", dy = normalTick)
-                        }
-                    }
+                    doArrowAction(arrowAction(event), 0f, 1f, event.repeatCount)
                     true
                 }
             }
             KeyEvent.KEYCODE_NUMPAD_4 -> {
-                if (typing) super.onKeyDown(keyCode, event)
+                if (typing || !settings.numpadMouse) super.onKeyDown(keyCode, event)
                 else {
                     pendingPreKar = null
                     pendingPreKarAfterHasant = false
-                    when {
-                        event.isShiftPressed -> {
-                            if (event.repeatCount == 0) sendCommand("move", dx = -fineStep)
-                            sendCommand("moveStart", dx = -fineTick)
-                        }
-                        event.isCtrlPressed -> sendCommand("hscroll", direction = 1f)
-                        else -> {
-                            if (event.repeatCount == 0) sendCommand("move", dx = -step)
-                            sendCommand("moveStart", dx = -normalTick)
-                        }
-                    }
+                    doArrowAction(arrowAction(event), -1f, 0f, event.repeatCount)
                     true
                 }
             }
             KeyEvent.KEYCODE_NUMPAD_6 -> {
-                if (typing) super.onKeyDown(keyCode, event)
+                if (typing || !settings.numpadMouse) super.onKeyDown(keyCode, event)
                 else {
                     pendingPreKar = null
                     pendingPreKarAfterHasant = false
-                    when {
-                        event.isShiftPressed -> {
-                            if (event.repeatCount == 0) sendCommand("move", dx = fineStep)
-                            sendCommand("moveStart", dx = fineTick)
-                        }
-                        event.isCtrlPressed -> sendCommand("hscroll", direction = -1f)
-                        else -> {
-                            if (event.repeatCount == 0) sendCommand("move", dx = step)
-                            sendCommand("moveStart", dx = normalTick)
-                        }
-                    }
+                    doArrowAction(arrowAction(event), 1f, 0f, event.repeatCount)
                     true
                 }
             }
             KeyEvent.KEYCODE_NUMPAD_5 -> {
-                if (typing) super.onKeyDown(keyCode, event)
+                if (typing || !settings.numpadMouse) super.onKeyDown(keyCode, event)
                 else {
                     sendCommand("click")
                     true
                 }
             }
             KeyEvent.KEYCODE_NUMPAD_7 -> {
-                if (typing) super.onKeyDown(keyCode, event)
+                if (typing || !settings.numpadMouse) super.onKeyDown(keyCode, event)
                 else {
                     pendingPreKar = null
                     pendingPreKarAfterHasant = false
@@ -447,7 +444,7 @@ class ArrowCursorIME : InputMethodService() {
                 }
             }
             KeyEvent.KEYCODE_NUMPAD_1 -> {
-                if (typing) super.onKeyDown(keyCode, event)
+                if (typing || !settings.numpadMouse) super.onKeyDown(keyCode, event)
                 else {
                     pendingPreKar = null
                     pendingPreKarAfterHasant = false
@@ -456,7 +453,7 @@ class ArrowCursorIME : InputMethodService() {
                 }
             }
             KeyEvent.KEYCODE_NUMPAD_9 -> {
-                if (typing) super.onKeyDown(keyCode, event)
+                if (typing || !settings.numpadMouse) super.onKeyDown(keyCode, event)
                 else {
                     pendingPreKar = null
                     pendingPreKarAfterHasant = false
@@ -469,7 +466,7 @@ class ArrowCursorIME : InputMethodService() {
                 }
             }
             KeyEvent.KEYCODE_NUMPAD_3 -> {
-                if (typing) super.onKeyDown(keyCode, event)
+                if (typing || !settings.numpadMouse) super.onKeyDown(keyCode, event)
                 else {
                     pendingPreKar = null
                     pendingPreKarAfterHasant = false
@@ -482,7 +479,7 @@ class ArrowCursorIME : InputMethodService() {
                 }
             }
             KeyEvent.KEYCODE_NUMPAD_ENTER -> {
-                if (typing) {
+                if (typing || !settings.numpadMouse) {
                     flushPendingPreKar()
                     super.onKeyDown(keyCode, event)
                 } else {
@@ -514,43 +511,60 @@ class ArrowCursorIME : InputMethodService() {
                 true
             }
             KeyEvent.KEYCODE_NUMPAD_8 -> {
-                if (isTextFieldFocused()) super.onKeyUp(keyCode, event)
+                if (isTextFieldFocused() || !settings.numpadMouse) super.onKeyUp(keyCode, event)
                 else {
                     sendCommand("moveStop", dy = -1f)
                     true
                 }
             }
             KeyEvent.KEYCODE_NUMPAD_2 -> {
-                if (isTextFieldFocused()) super.onKeyUp(keyCode, event)
+                if (isTextFieldFocused() || !settings.numpadMouse) super.onKeyUp(keyCode, event)
                 else {
                     sendCommand("moveStop", dy = 1f)
                     true
                 }
             }
             KeyEvent.KEYCODE_NUMPAD_4 -> {
-                if (isTextFieldFocused()) super.onKeyUp(keyCode, event)
+                if (isTextFieldFocused() || !settings.numpadMouse) super.onKeyUp(keyCode, event)
                 else {
                     sendCommand("moveStop", dx = -1f)
                     true
                 }
             }
             KeyEvent.KEYCODE_NUMPAD_6 -> {
-                if (isTextFieldFocused()) super.onKeyUp(keyCode, event)
+                if (isTextFieldFocused() || !settings.numpadMouse) super.onKeyUp(keyCode, event)
                 else {
                     sendCommand("moveStop", dx = 1f)
                     true
                 }
             }
             KeyEvent.KEYCODE_PAGE_UP, KeyEvent.KEYCODE_PAGE_DOWN -> true
-            KeyEvent.KEYCODE_MOVE_HOME, KeyEvent.KEYCODE_MOVE_END,
+            KeyEvent.KEYCODE_MOVE_HOME, KeyEvent.KEYCODE_MOVE_END -> {
+                // In a text field these keys belong to the app (text
+                // cursor); anywhere else this keyboard owns them.
+                if (isTextFieldFocused()) super.onKeyUp(keyCode, event) else true
+            }
             KeyEvent.KEYCODE_NUMPAD_5, KeyEvent.KEYCODE_NUMPAD_7,
             KeyEvent.KEYCODE_NUMPAD_1, KeyEvent.KEYCODE_NUMPAD_9,
             KeyEvent.KEYCODE_NUMPAD_3, KeyEvent.KEYCODE_NUMPAD_ENTER -> {
                 // In a text field these keys belong to the app (digits,
-                // text cursor); anywhere else this keyboard owns them.
-                if (isTextFieldFocused()) super.onKeyUp(keyCode, event) else true
+                // text cursor); anywhere else this keyboard owns them —
+                // unless the numpad mouse is off in Settings, in which
+                // case they pass through to the app as well.
+                if (isTextFieldFocused() || !settings.numpadMouse) super.onKeyUp(keyCode, event) else true
             }
-            KeyEvent.KEYCODE_SPACE, KeyEvent.KEYCODE_ENTER,
+            KeyEvent.KEYCODE_SPACE -> {
+                if (isTextFieldFocused()) {
+                    super.onKeyUp(keyCode, event)
+                } else {
+                    // Short tap = click (the long-press, if it fired,
+                    // already did its work — do not also click).
+                    keyHandler.removeCallbacks(spaceLongPressRunnable)
+                    if (!spaceLongPressFired) sendCommand("click")
+                    true
+                }
+            }
+            KeyEvent.KEYCODE_ENTER,
             KeyEvent.KEYCODE_DPAD_CENTER -> {
                 if (isTextFieldFocused()) {
                     super.onKeyUp(keyCode, event)
@@ -662,6 +676,13 @@ class ArrowCursorIME : InputMethodService() {
         }
         val prev = ic.getTextBeforeCursor(1, 0)?.toString()
         when {
+            // অ + া = আ (the independent vowel আ). Without this, typing
+            // অ then া left a detached া after the অ instead of
+            // combining into আ (user, 2026-11-28, Messenger screenshot).
+            value == "া" && prev == "অ" -> {
+                ic.deleteSurroundingText(1, 0)
+                ic.commitText("আ", 1)
+            }
             value == "া" && prev == "ে" -> {
                 ic.deleteSurroundingText(1, 0)
                 ic.commitText("ো", 1)

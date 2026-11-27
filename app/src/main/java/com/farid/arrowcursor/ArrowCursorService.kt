@@ -77,6 +77,7 @@ class ArrowCursorService : AccessibilityService() {
                     intent.getFloatExtra(EXTRA_DY, 0f),
                 )
                 "click" -> performClick()
+                "longPress" -> performLongPress()
                 "scroll" -> performScroll(intent.getFloatExtra(EXTRA_DIRECTION, 0f))
                 "scrollTop" -> scrollToEdge(forward = false)
                 "scrollBottom" -> scrollToEdge(forward = true)
@@ -299,7 +300,19 @@ class ArrowCursorService : AccessibilityService() {
             kotlin.math.abs(dx),
             kotlin.math.abs(dy),
         )
-        if (mag > 1f) moveTickStep = mag
+        // The glide base step scales with the cursor speed setting, so
+        // turning the speed up makes the glide go from slow to MUCH
+        // faster. It used to be a fixed 7 px/tick, so the speed setting
+        // only changed the single-press step and the glide never got
+        // faster (user, 2026-11-28). A fine move (mag ~2) stays at
+        // 2 px/tick for precision, whatever the speed is.
+        moveTickStep = if (mag <= 2.5f) {
+            2f
+        } else if (::settings.isInitialized) {
+            maxOf(3f, settings.speedPx / 3f)
+        } else {
+            7f
+        }
         if (!moveLoopRunning) {
             moveLoopRunning = true
             moveStartTime = SystemClock.uptimeMillis()
@@ -318,15 +331,16 @@ class ArrowCursorService : AccessibilityService() {
 
     // --- Magnetic pointer: snap to the nearest button ---
     // The snap fires only after the pointer has sat still near a button
-    // for a full second (SNAP_DELAY_MS). While the pointer is moving,
-    // or while the page is scrolling, the timer is reset/cancelled, so
-    // scrolling never fights the snap — exactly the rule the user set.
+    // for the delay set in Settings (default 1 second). While the
+    // pointer is moving, or while the page is scrolling, the timer is
+    // reset/cancelled, so scrolling never fights the snap — exactly
+    // the rule the user set.
     private val snapRunnable = Runnable { snapToNearestButton() }
 
     private fun scheduleSnap() {
         if (!settings.snapToButton) return
         gestureHandler.removeCallbacks(snapRunnable)
-        gestureHandler.postDelayed(snapRunnable, SNAP_DELAY_MS)
+        gestureHandler.postDelayed(snapRunnable, settings.snapDelayMs.toLong())
     }
 
     private fun cancelSnap() {
@@ -337,7 +351,7 @@ class ArrowCursorService : AccessibilityService() {
         if (!settings.snapToButton) return
         val x = pointerScreenX()
         val y = pointerScreenY()
-        val node = findNearestClickable(x, y, SNAP_RADIUS_PX) ?: return
+        val node = findNearestClickable(x, y, settings.snapRadiusPx.toFloat()) ?: return
         val bounds = android.graphics.Rect()
         node.getBoundsInScreen(bounds)
         node.recycle()
@@ -398,6 +412,30 @@ class ArrowCursorService : AccessibilityService() {
         val path = Path().apply { moveTo(x, y) }
         val gesture = GestureDescription.Builder()
             .addStroke(GestureDescription.StrokeDescription(path, 0, 50))
+            .build()
+        dispatchPointerGesture(gesture, 150)
+    }
+
+    /**
+     * Long-press at the pointer tip (hold ~600 ms): selects text on a
+     * page, opens a context menu, or starts a drag. A plain tap (click)
+     * cannot do any of these — that is why "page select" did not work
+     * (user, 2026-11-28). The 1 px stroke keeps the gesture path valid
+     * (a zero-length path is rejected); 1 px is far below the touch
+     * slop, so it is a hold, not a drag.
+     */
+    private fun performLongPress() {
+        // A long-press can change the page (context menu, selection), so
+        // it cancels a pending snap like scrolling does.
+        cancelSnap()
+        val x = pointerScreenX()
+        val y = pointerScreenY()
+        val path = Path().apply {
+            moveTo(x, y)
+            lineTo(x + 1f, y + 1f)
+        }
+        val gesture = GestureDescription.Builder()
+            .addStroke(GestureDescription.StrokeDescription(path, 0, 600))
             .build()
         dispatchPointerGesture(gesture, 150)
     }
@@ -648,7 +686,8 @@ class ArrowCursorService : AccessibilityService() {
         val gesture = GestureDescription.Builder()
             // 300 ms by default: a smooth glide, not a fast fling — reads
             // as a scroll, and the app has time to follow it.
-            .addStroke(GestureDescription.StrokeDescription(path, 0, durationMs))
+            // (durationMs is an Int; StrokeDescription takes a Long.)
+            .addStroke(GestureDescription.StrokeDescription(path, 0, durationMs.toLong()))
             .build()
         dispatchPointerGesture(gesture, 250)
     }
@@ -935,9 +974,5 @@ class ArrowCursorService : AccessibilityService() {
         const val EXTRA_DIRECTION = "direction"
         const val NOTIFICATION_ID = 1001
         const val CHANNEL_ID = "arrow_cursor_channel"
-        // Magnetic snap: how long the pointer must sit still near a
-        // button before it settles onto it, and how close is "near".
-        const val SNAP_DELAY_MS = 1000L
-        const val SNAP_RADIUS_PX = 80f
     }
 }
