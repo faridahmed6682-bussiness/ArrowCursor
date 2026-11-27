@@ -590,8 +590,17 @@ class ArrowCursorService : AccessibilityService() {
      * (a page or item sitting off-screen to the side) — i.e. the node
      * scrolls sideways. A vertical list's items are full-width, so they
      * do not extend past the edges and it is correctly excluded.
+     * A ViewPager / HorizontalScrollView is always sideways, even when
+     * its off-screen pages are not in the accessibility tree as
+     * children (then the child-bounds check below would miss it).
      */
     private fun isHorizontallyScrollable(node: AccessibilityNodeInfo): Boolean {
+        val className = node.className?.toString() ?: ""
+        if (className.contains("ViewPager") ||
+            className.contains("HorizontalScrollView")
+        ) {
+            return true
+        }
         val bounds = android.graphics.Rect()
         node.getBoundsInScreen(bounds)
         for (i in 0 until node.childCount) {
@@ -614,13 +623,16 @@ class ArrowCursorService : AccessibilityService() {
         // pointer is a VERTICAL RecyclerView, and ACTION_SCROLL_FORWARD
         // on it scrolls DOWN instead of sideways — so Shift+PgDn did
         // nothing sideways in v1.0.18. With no sideways node, the
-        // horizontal swipe below does it (home-screen pages, carousels).
+        // horizontal fling below does it (home-screen pages, carousels).
         if (scrollNodeAt(x, y, forward = direction < 0f, horizontal = true)) return
-        val distance = resources.displayMetrics.widthPixels * 0.4f * direction
-        performSwipe(distance, 0f)
+        val distance = resources.displayMetrics.widthPixels * 0.5f * direction
+        // A fast fling (120 ms), not a slow drag: on the home screen a
+        // slow drag starting on an app icon is taken as "move the icon",
+        // while a quick flick changes the page.
+        performSwipe(distance, 0f, durationMs = 120)
     }
 
-    private fun performSwipe(dx: Float, dy: Float) {
+    private fun performSwipe(dx: Float, dy: Float, durationMs: Int = 300) {
         val x = pointerScreenX()
         val y = pointerScreenY()
         val width = resources.displayMetrics.widthPixels.toFloat()
@@ -634,9 +646,9 @@ class ArrowCursorService : AccessibilityService() {
             lineTo(endX, endY)
         }
         val gesture = GestureDescription.Builder()
-            // 300 ms: a smooth glide, not a fast fling — reads as a
-            // scroll, and the app has time to follow it.
-            .addStroke(GestureDescription.StrokeDescription(path, 0, 300))
+            // 300 ms by default: a smooth glide, not a fast fling — reads
+            // as a scroll, and the app has time to follow it.
+            .addStroke(GestureDescription.StrokeDescription(path, 0, durationMs))
             .build()
         dispatchPointerGesture(gesture, 250)
     }
