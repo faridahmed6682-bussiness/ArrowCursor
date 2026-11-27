@@ -60,4 +60,6 @@
     <string name="gemini_error_no_key">No Gemini API key saved. Paste your free key above first.</string>
     <string name="gemini_error_network">Could not reach Gemini. Check your internet connection.</string>
     <string name="gemini_tool_done">Done.</string>
+    <string name="ime_mode_label">ArrowCursor mouse mode — arrows move the pointer, Space clicks</string>
+    <string name="ime_switch_keyboard">Switch keyboard</string>
 </resources>

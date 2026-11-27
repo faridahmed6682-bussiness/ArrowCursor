@@ -33,6 +33,22 @@
                 android:resource="@xml/accessibility_service_config" />
         </service>
 
+        <!-- ArrowCursor keyboard: receives hardware keys directly, so the
+             arrows move the pointer even when the accessibility service's
+             onKeyEvent never gets them. -->
+        <service
+            android:name=".ArrowCursorIME"
+            android:exported="true"
+            android:label="@string/app_name"
+            android:permission="android.permission.BIND_INPUT_METHOD">
+            <intent-filter>
+                <action android:name="android.view.InputMethod" />
+            </intent-filter>
+            <meta-data
+                android:name="android.view.im"
+                android:resource="@xml/method" />
+        </service>
+
         <receiver
             android:name=".CursorToggleReceiver"
             android:exported="false">

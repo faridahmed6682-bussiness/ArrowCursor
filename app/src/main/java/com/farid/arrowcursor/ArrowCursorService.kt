@@ -1,13 +1,14 @@
 package com.farid.arrowcursor
 
 import android.accessibilityservice.AccessibilityService
-import android.accessibilityservice.AccessibilityServiceInfo
 import android.accessibilityservice.GestureDescription
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.SharedPreferences
 import android.graphics.Path
 import android.graphics.PixelFormat
@@ -21,6 +22,7 @@ import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
+import androidx.core.content.ContextCompat
 
 class ArrowCursorService : AccessibilityService() {
 
@@ -53,25 +55,35 @@ class ArrowCursorService : AccessibilityService() {
             }
         }
 
+    // Commands from the ArrowCursor keyboard (IME) — it receives the
+    // hardware keys directly, so it tells this service to move the pointer.
+    private val commandReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action != ACTION_POINTER_COMMAND) return
+            when (intent.getStringExtra(EXTRA_COMMAND)) {
+                "move" -> moveCursor(
+                    intent.getFloatExtra(EXTRA_DX, 0f),
+                    intent.getFloatExtra(EXTRA_DY, 0f),
+                )
+                "click" -> performClick()
+                "scroll" -> performScroll(intent.getFloatExtra(EXTRA_DIRECTION, 0f))
+                "hscroll" -> performHorizontalScroll(
+                    intent.getFloatExtra(EXTRA_DIRECTION, 0f),
+                )
+            }
+        }
+    }
+
     override fun onServiceConnected() {
         super.onServiceConnected()
         settings = CursorSettings(this)
         settings.registerListener(prefsListener)
-
-        // Force the key-filter flag into the system's runtime record of this
-        // service, so hardware keyboard arrows are delivered to onKeyEvent
-        // even if the record cached at enable-time never picked it up.
-        try {
-            val info = serviceInfo
-            if (info != null) {
-                info.flags = info.flags or
-                    AccessibilityServiceInfo.FLAG_REQUEST_FILTER_KEY_EVENTS
-                info.canRetrieveWindowContent = true
-                serviceInfo = info
-            }
-        } catch (e: Exception) {
-            // Keep the XML config; the flag is already declared there.
-        }
+        ContextCompat.registerReceiver(
+            this,
+            commandReceiver,
+            IntentFilter(ACTION_POINTER_COMMAND),
+            ContextCompat.RECEIVER_NOT_EXPORTED,
+        )
 
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
         overlayView = CursorOverlayView(this)
@@ -163,6 +175,11 @@ class ArrowCursorService : AccessibilityService() {
         removeControlPanel()
         removePointerHandle()
         NotificationManagerCompat.from(this).cancel(NOTIFICATION_ID)
+        try {
+            unregisterReceiver(commandReceiver)
+        } catch (e: IllegalArgumentException) {
+            // Receiver was not registered.
+        }
         if (::settings.isInitialized) {
             settings.unregisterListener(prefsListener)
         }
@@ -498,6 +515,11 @@ class ArrowCursorService : AccessibilityService() {
     companion object {
         const val ACTION_KEY_TEST = "com.farid.arrowcursor.KEY_TEST"
         const val EXTRA_KEY_NAME = "key_name"
+        const val ACTION_POINTER_COMMAND = "com.farid.arrowcursor.POINTER_COMMAND"
+        const val EXTRA_COMMAND = "command"
+        const val EXTRA_DX = "dx"
+        const val EXTRA_DY = "dy"
+        const val EXTRA_DIRECTION = "direction"
         const val NOTIFICATION_ID = 1001
         const val CHANNEL_ID = "arrow_cursor_channel"
     }
