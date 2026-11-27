@@ -60,6 +60,6 @@
     <string name="gemini_error_no_key">Gemini API Key দেওয়া হয়নি। উপরে ফ্রি Key বসান।</string>
     <string name="gemini_error_network">Gemini-র সাথে যোগাযোগ হচ্ছে না। ইন্টারনেট চেক করুন।</string>
     <string name="gemini_tool_done">হয়ে গেছে।</string>
-    <string name="ime_mode_label">ArrowCursor মাউস মোড — এরোতে পয়েন্টার নড়বে, Space-এ ক্লিক হবে</string>
+    <string name="ime_mode_label">ArrowCursor — মাউস + কীবোর্ড। এরোতে পয়েন্টার নড়বে, Space-এ ক্লিক হবে। নিচের কীবোর্ড থেকে ভাষা বদলান।</string>
     <string name="ime_switch_keyboard">কীবোর্ড বদলান</string>
 </resources>

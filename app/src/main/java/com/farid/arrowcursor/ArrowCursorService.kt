@@ -13,6 +13,8 @@ import android.content.SharedPreferences
 import android.graphics.Path
 import android.graphics.PixelFormat
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.view.Gravity
 import android.view.KeyEvent
 import android.view.MotionEvent
@@ -210,7 +212,28 @@ class ArrowCursorService : AccessibilityService() {
         val gesture = GestureDescription.Builder()
             .addStroke(GestureDescription.StrokeDescription(path, 0, 50))
             .build()
+        dispatchPointerGesture(gesture, 150)
+    }
+
+    /**
+     * Dispatches an injected gesture at the pointer. The pointer's drag
+     * handle is a touchable window sitting exactly on the pointer, so a
+     * gesture starting there would land on our own handle instead of the
+     * app below — hide the handle for the gesture, then put it back.
+     */
+    private val gestureHandler = Handler(Looper.getMainLooper())
+
+    private fun dispatchPointerGesture(gesture: GestureDescription, restoreAfterMs: Long) {
+        val hadHandle = handleAdded
+        if (hadHandle) removePointerHandle()
         dispatchGesture(gesture, null, null)
+        if (hadHandle) {
+            gestureHandler.postDelayed({
+                if (::settings.isInitialized && settings.cursorEnabled) {
+                    addPointerHandle()
+                }
+            }, restoreAfterMs)
+        }
     }
 
     /**
@@ -243,7 +266,7 @@ class ArrowCursorService : AccessibilityService() {
         val gesture = GestureDescription.Builder()
             .addStroke(GestureDescription.StrokeDescription(path, 0, 150))
             .build()
-        dispatchGesture(gesture, null, null)
+        dispatchPointerGesture(gesture, 250)
     }
 
     private fun isTypingTargetFocused(): Boolean {
