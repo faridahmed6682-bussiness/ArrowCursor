@@ -8,6 +8,10 @@
     <string name="notification_action_enable">চালু করুন</string>
     <string name="notification_action_disable">বন্ধ করুন</string>
     <string name="last_key_prefix">শেষ কি:</string>
+    <string name="keys_received">পাওয়া কি: %1$d</string>
+    <string name="key_filter_on">কী ফিল্টার: চালু আছে — কীবোর্ডের এরো অ্যাপে পৌঁছাবে।</string>
+    <string name="key_filter_off">কী ফিল্টার: বন্ধ আছে — Accessibility সেটিংসে সার্ভিস বন্ধ করে আবার চালু করুন।</string>
+    <string name="key_filter_unknown">কী ফিল্টার: সিস্টেমের তালিকায় সার্ভিস পাওয়া যায়নি।</string>
     <string name="checklist_step1">১. অ্যাক্সেসিবিলিটি সেটিংস খুলুন চাপুন আর ArrowCursor চালু করুন</string>
     <string name="checklist_step2">২. অ্যারো কি চাপুন — কার্সর নড়বে</string>
     <string name="checklist_step3">৩. আইকনের উপর কার্সর রেখে Space চাপুন — ক্লিক হবে</string>

@@ -8,6 +8,10 @@
     <string name="notification_action_enable">Enable</string>
     <string name="notification_action_disable">Disable</string>
     <string name="last_key_prefix">Last key:</string>
+    <string name="keys_received">Keys received: %1$d</string>
+    <string name="key_filter_on">Key filter: ON — keyboard arrows should reach the app.</string>
+    <string name="key_filter_off">Key filter: OFF — turn the service OFF and ON once in Accessibility settings.</string>
+    <string name="key_filter_unknown">Key filter: service not found in the system list.</string>
     <string name="checklist_step1">1. Tap Open Accessibility Settings and turn on ArrowCursor</string>
     <string name="checklist_step2">2. Press the arrow keys — the cursor moves</string>
     <string name="checklist_step3">3. Press Space on an icon to click it</string>

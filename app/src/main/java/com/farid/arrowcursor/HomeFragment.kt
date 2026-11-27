@@ -8,6 +8,8 @@ import android.content.IntentFilter
 import android.os.Bundle
 import android.provider.Settings
 import android.view.View
+import android.view.accessibility.AccessibilityManager
+import android.view.accessibility.AccessibilityServiceInfo
 import android.widget.Button
 import android.widget.TextView
 import android.widget.Toast
@@ -19,12 +21,16 @@ class HomeFragment : Fragment(R.layout.fragment_home) {
     private lateinit var textStatus: TextView
     private lateinit var buttonToggle: Button
     private lateinit var textLastKey: TextView
+    private lateinit var textKeyFilter: TextView
+    private var keyCount = 0
 
     private val keyTestReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             val keyName = intent?.getStringExtra(ArrowCursorService.EXTRA_KEY_NAME) ?: return
+            keyCount++
             if (::textLastKey.isInitialized) {
-                textLastKey.text = getString(R.string.last_key_prefix) + " " + keyName
+                textLastKey.text = getString(R.string.last_key_prefix) + " " + keyName +
+                    "  •  " + getString(R.string.keys_received, keyCount)
             }
         }
     }
@@ -43,6 +49,7 @@ class HomeFragment : Fragment(R.layout.fragment_home) {
             getString(R.string.checklist_step2) + "\n" +
             getString(R.string.checklist_step3)
         textTestArea.text = getString(R.string.test_area_hint)
+        textKeyFilter = view.findViewById(R.id.text_key_filter)
 
         buttonOpenAccessibility.setOnClickListener {
             startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
@@ -116,5 +123,32 @@ class HomeFragment : Fragment(R.layout.fragment_home) {
         } else {
             getString(R.string.button_enable_cursor)
         }
+        if (::textKeyFilter.isInitialized) {
+            textKeyFilter.text = when (isKeyFilterEnabled()) {
+                true -> getString(R.string.key_filter_on)
+                false -> getString(R.string.key_filter_off)
+                null -> getString(R.string.key_filter_unknown)
+            }
+        }
+    }
+
+    /**
+     * Reads the system's own record of this service and checks whether the
+     * key-filter flag is set there. If the system record says OFF, keyboard
+     * arrows can never reach the service until it is toggled OFF/ON.
+     */
+    private fun isKeyFilterEnabled(): Boolean? {
+        val manager = requireContext().getSystemService(Context.ACCESSIBILITY_SERVICE)
+            as AccessibilityManager
+        val myPackage = requireContext().packageName
+        for (info in manager.installedAccessibilityServiceList) {
+            val serviceInfo = info.resolveInfo?.serviceInfo ?: continue
+            if (serviceInfo.packageName == myPackage &&
+                serviceInfo.name.endsWith("ArrowCursorService")
+            ) {
+                return info.flags and AccessibilityServiceInfo.FLAG_REQUEST_FILTER_KEY_EVENTS != 0
+            }
+        }
+        return null
     }
 }
