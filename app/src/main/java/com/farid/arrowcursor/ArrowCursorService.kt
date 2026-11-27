@@ -154,8 +154,8 @@ class ArrowCursorService : AccessibilityService() {
 
     private fun applySettingsToOverlay() {
         overlayView?.let { view ->
-            view.setCursorSizeDp(settings.sizeDp.toFloat())
-            view.setCursorColor(settings.cursorColor)
+            view.cursorSizeDp = settings.sizeDp.toFloat()
+            view.cursorColor = settings.cursorColor
         }
     }
 

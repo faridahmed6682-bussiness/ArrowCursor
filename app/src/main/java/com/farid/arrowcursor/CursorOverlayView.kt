@@ -13,7 +13,15 @@ class CursorOverlayView(context: Context) : View(context) {
     var cursorX: Float
     var cursorY: Float
     var cursorSizeDp: Float = 36f
+        set(value) {
+            field = value
+            invalidate()
+        }
     var cursorColor: Int = Color.WHITE
+        set(value) {
+            field = value
+            invalidate()
+        }
 
     private val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.FILL
@@ -38,16 +46,6 @@ class CursorOverlayView(context: Context) : View(context) {
         val displayHeight = metrics.heightPixels.toFloat()
         cursorX = (cursorX + dx).coerceIn(0f, displayWidth)
         cursorY = (cursorY + dy).coerceIn(0f, displayHeight)
-        invalidate()
-    }
-
-    fun setCursorSizeDp(dp: Float) {
-        cursorSizeDp = dp
-        invalidate()
-    }
-
-    fun setCursorColor(color: Int) {
-        cursorColor = color
         invalidate()
     }
 
