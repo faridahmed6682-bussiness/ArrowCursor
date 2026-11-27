@@ -1,6 +1,7 @@
 package com.farid.arrowcursor
 
 import android.accessibilityservice.AccessibilityService
+import android.accessibilityservice.AccessibilityServiceInfo
 import android.accessibilityservice.GestureDescription
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -56,6 +57,21 @@ class ArrowCursorService : AccessibilityService() {
         super.onServiceConnected()
         settings = CursorSettings(this)
         settings.registerListener(prefsListener)
+
+        // Force the key-filter flag into the system's runtime record of this
+        // service, so hardware keyboard arrows are delivered to onKeyEvent
+        // even if the record cached at enable-time never picked it up.
+        try {
+            val info = serviceInfo
+            if (info != null) {
+                info.flags = info.flags or
+                    AccessibilityServiceInfo.FLAG_REQUEST_FILTER_KEY_EVENTS
+                info.canRetrieveWindowContent = true
+                serviceInfo = info
+            }
+        } catch (e: Exception) {
+            // Keep the XML config; the flag is already declared there.
+        }
 
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
         overlayView = CursorOverlayView(this)
