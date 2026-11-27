@@ -226,6 +226,10 @@ class ArrowCursorService : AccessibilityService() {
     private var moveDirY = 0f
     private var moveStartTime = 0L
     private var moveLoopRunning = false
+    // Base glide step per 16 ms tick. The keyboard sends the step as the
+    // magnitude of the moveStart direction (7 = normal, 2 = fine/Shift);
+    // a plain direction of 1 keeps the 7 default.
+    private var moveTickStep = 7f
 
     private val moveRunnable = object : Runnable {
         override fun run() {
@@ -243,7 +247,7 @@ class ArrowCursorService : AccessibilityService() {
             }
             // Accelerate: 1x at first, up to 4x after ~1.5 s held.
             val accel = (1f + heldMs / 500f).coerceAtMost(4f)
-            val step = 7f * accel
+            val step = moveTickStep * accel
             moveCursor(moveDirX * step, moveDirY * step)
             gestureHandler.postDelayed(this, 16)
         }
@@ -252,6 +256,11 @@ class ArrowCursorService : AccessibilityService() {
     private fun moveStart(dx: Float, dy: Float) {
         if (dx != 0f) moveDirX = if (dx > 0f) 1f else -1f
         if (dy != 0f) moveDirY = if (dy > 0f) 1f else -1f
+        val mag = maxOf(
+            kotlin.math.abs(dx),
+            kotlin.math.abs(dy),
+        )
+        if (mag > 1f) moveTickStep = mag
         if (!moveLoopRunning) {
             moveLoopRunning = true
             moveStartTime = SystemClock.uptimeMillis()

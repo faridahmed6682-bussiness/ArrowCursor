@@ -128,6 +128,25 @@ class ArrowCursorIME : InputMethodService() {
         val speed = settings.speedPx.toFloat()
         val typing = isTextFieldFocused()
 
+        // Shift+arrow = fine step (for small buttons): a tiny step per
+        // press and a slow glide while held. Plain arrow = normal step.
+        // (The step itself is adjustable in the app: Settings -> speed,
+        // 8..64 px per press.)
+        val fineMove = event.isShiftPressed
+        val moveStep = if (fineMove) maxOf(2f, speed / 6f) else speed
+        val moveTick = if (fineMove) 2f else 7f
+
+        // Shift+arrow in a text field selects text (computer-like); it
+        // does not move the pointer.
+        if (event.isShiftPressed && typing) {
+            when (keyCode) {
+                KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN,
+                KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT -> {
+                    return super.onKeyDown(keyCode, event)
+                }
+            }
+        }
+
         // Bengali (Jatiya) typing from the hardware keyboard.
         if (language == "bn" && typing) {
             val jatiya = jatiyaForKey(keyCode, event.isShiftPressed)
@@ -170,29 +189,29 @@ class ArrowCursorIME : InputMethodService() {
                 // One step on the first press; while the key is held the
                 // service glides the pointer smoothly (moveStart) instead
                 // of jumping on every key repeat.
-                if (event.repeatCount == 0) sendCommand("move", dy = -speed)
-                sendCommand("moveStart", dy = -1f)
+                if (event.repeatCount == 0) sendCommand("move", dy = -moveStep)
+                sendCommand("moveStart", dy = -moveTick)
                 true
             }
             KeyEvent.KEYCODE_DPAD_DOWN -> {
                 pendingPreKar = null
                 pendingPreKarAfterHasant = false
-                if (event.repeatCount == 0) sendCommand("move", dy = speed)
-                sendCommand("moveStart", dy = 1f)
+                if (event.repeatCount == 0) sendCommand("move", dy = moveStep)
+                sendCommand("moveStart", dy = moveTick)
                 true
             }
             KeyEvent.KEYCODE_DPAD_LEFT -> {
                 pendingPreKar = null
                 pendingPreKarAfterHasant = false
-                if (event.repeatCount == 0) sendCommand("move", dx = -speed)
-                sendCommand("moveStart", dx = -1f)
+                if (event.repeatCount == 0) sendCommand("move", dx = -moveStep)
+                sendCommand("moveStart", dx = -moveTick)
                 true
             }
             KeyEvent.KEYCODE_DPAD_RIGHT -> {
                 pendingPreKar = null
                 pendingPreKarAfterHasant = false
-                if (event.repeatCount == 0) sendCommand("move", dx = speed)
-                sendCommand("moveStart", dx = 1f)
+                if (event.repeatCount == 0) sendCommand("move", dx = moveStep)
+                sendCommand("moveStart", dx = moveTick)
                 true
             }
             KeyEvent.KEYCODE_SPACE -> {
@@ -257,8 +276,8 @@ class ArrowCursorIME : InputMethodService() {
                 else {
                     pendingPreKar = null
                     pendingPreKarAfterHasant = false
-                    if (event.repeatCount == 0) sendCommand("move", dy = -speed)
-                    sendCommand("moveStart", dy = -1f)
+                    if (event.repeatCount == 0) sendCommand("move", dy = -moveStep)
+                    sendCommand("moveStart", dy = -moveTick)
                     true
                 }
             }
@@ -267,8 +286,8 @@ class ArrowCursorIME : InputMethodService() {
                 else {
                     pendingPreKar = null
                     pendingPreKarAfterHasant = false
-                    if (event.repeatCount == 0) sendCommand("move", dy = speed)
-                    sendCommand("moveStart", dy = 1f)
+                    if (event.repeatCount == 0) sendCommand("move", dy = moveStep)
+                    sendCommand("moveStart", dy = moveTick)
                     true
                 }
             }
@@ -277,8 +296,8 @@ class ArrowCursorIME : InputMethodService() {
                 else {
                     pendingPreKar = null
                     pendingPreKarAfterHasant = false
-                    if (event.repeatCount == 0) sendCommand("move", dx = -speed)
-                    sendCommand("moveStart", dx = -1f)
+                    if (event.repeatCount == 0) sendCommand("move", dx = -moveStep)
+                    sendCommand("moveStart", dx = -moveTick)
                     true
                 }
             }
@@ -287,8 +306,8 @@ class ArrowCursorIME : InputMethodService() {
                 else {
                     pendingPreKar = null
                     pendingPreKarAfterHasant = false
-                    if (event.repeatCount == 0) sendCommand("move", dx = speed)
-                    sendCommand("moveStart", dx = 1f)
+                    if (event.repeatCount == 0) sendCommand("move", dx = moveStep)
+                    sendCommand("moveStart", dx = moveTick)
                     true
                 }
             }
