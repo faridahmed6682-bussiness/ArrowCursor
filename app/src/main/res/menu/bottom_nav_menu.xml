@@ -12,4 +12,8 @@
         android:id="@+id/nav_gemini"
         android:icon="@drawable/ic_gemini"
         android:title="@string/nav_gemini" />
+    <item
+        android:id="@+id/nav_keymap"
+        android:icon="@drawable/ic_keymap"
+        android:title="@string/nav_keymap" />
 </menu>

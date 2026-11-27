@@ -46,6 +46,10 @@ class MainActivity : AppCompatActivity() {
                     showFragment(GeminiFragment())
                     true
                 }
+                R.id.nav_keymap -> {
+                    showFragment(KeyMapFragment())
+                    true
+                }
                 else -> false
             }
         }

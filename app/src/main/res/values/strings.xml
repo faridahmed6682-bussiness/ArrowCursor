@@ -66,6 +66,22 @@
     <string name="nav_home">Home</string>
     <string name="nav_settings">Settings</string>
     <string name="nav_gemini">Gemini</string>
+    <string name="nav_keymap">Key Map</string>
+    <string name="keymap_title">Key Map — what every key does</string>
+    <string name="keymap_note">Shift + arrow and Ctrl + arrow follow Settings (defaults: Shift = fine step, Ctrl = scroll). In a text field, Shift + arrow selects text and Ctrl + arrow jumps by word.</string>
+    <string name="keymap_move_pointer">Move pointer</string>
+    <string name="keymap_fine_step">Fine step — tiny move, for small buttons</string>
+    <string name="keymap_scroll">Scroll</string>
+    <string name="keymap_click">Click</string>
+    <string name="keymap_long_press">Long-press — select text on a page, open a menu</string>
+    <string name="keymap_scroll_up_down">Scroll up / down</string>
+    <string name="keymap_scroll_sideways">Scroll sideways (left / right)</string>
+    <string name="keymap_scroll_top_bottom">Scroll to the very top / bottom</string>
+    <string name="keymap_switch_language">Switch language (English / Bengali)</string>
+    <string name="keymap_copy_paste">Copy / Paste</string>
+    <string name="keymap_type">Type (English / Bengali Jatiya)</string>
+    <string name="keymap_numpad_move">Move pointer (second mouse)</string>
+    <string name="keymap_text_cursor">Move the text cursor (in a text field)</string>
     <string name="gemini_api_key_label">Gemini API key</string>
     <string name="gemini_api_key_hint">Paste your free Gemini API key (AIza…)</string>
     <string name="gemini_save_key">Save key</string>

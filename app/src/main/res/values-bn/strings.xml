@@ -46,6 +46,22 @@
     <string name="nav_home">হোম</string>
     <string name="nav_settings">সেটিংস</string>
     <string name="nav_gemini">জেমিনি</string>
+    <string name="nav_keymap">কী ম্যাপ</string>
+    <string name="keymap_title">কী ম্যাপ — কোন বাটনে কী হয়</string>
+    <string name="keymap_note">Shift + অ্যারো আর Ctrl + অ্যারো সেটিংস অনুযায়ী কাজ করে (ডিফল্ট: Shift = ফাইন স্টেপ, Ctrl = স্ক্রল)। টেক্সট ফিল্ডে Shift + অ্যারো লেখা সিলেক্ট করে, Ctrl + অ্যারো শব্দে শব্দে যায়।</string>
+    <string name="keymap_move_pointer">পয়েন্টার নাড়ানো</string>
+    <string name="keymap_fine_step">ফাইন স্টেপ — ছোট বাটনের জন্য অল্প নড়ানো</string>
+    <string name="keymap_scroll">স্ক্রল</string>
+    <string name="keymap_click">ক্লিক</string>
+    <string name="keymap_long_press">লং-প্রেস — পেজের লেখা সিলেক্ট, মেনু খোলা</string>
+    <string name="keymap_scroll_up_down">উপরে / নিচে স্ক্রল</string>
+    <string name="keymap_scroll_sideways">পাশে স্ক্রল (বাম / ডান)</string>
+    <string name="keymap_scroll_top_bottom">একদম উপরে / নিচে যাওয়া</string>
+    <string name="keymap_switch_language">ভাষা বদলানো (English / বাংলা)</string>
+    <string name="keymap_copy_paste">কপি / পেস্ট</string>
+    <string name="keymap_type">টাইপ করা (English / বাংলা জাতীয়)</string>
+    <string name="keymap_numpad_move">পয়েন্টার নাড়ানো (দ্বিতীয় মাউস)</string>
+    <string name="keymap_text_cursor">টেক্সট কার্সর নাড়ানো (টেক্সট ফিল্ডে)</string>
     <string name="gemini_api_key_label">Gemini API Key</string>
     <string name="gemini_api_key_hint">ফ্রি Gemini API Key বসান (AIza…)</string>
     <string name="gemini_save_key">Key সংরক্ষণ করুন</string>
