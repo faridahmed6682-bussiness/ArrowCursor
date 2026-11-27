@@ -37,6 +37,14 @@ class CursorSettings(context: Context) {
         get() = prefs.getBoolean(KEY_CURSOR_ENABLED, false)
         set(value) = prefs.edit().putBoolean(KEY_CURSOR_ENABLED, value).apply()
 
+    // Magnetic pointer: when the pointer stops moving, settle it onto
+    // the centre of the nearest clickable button (within 80 px), so
+    // small buttons are easy to hit. Off by default? No — on, because
+    // the user asked for it; it can be switched off in Settings.
+    var snapToButton: Boolean
+        get() = prefs.getBoolean(KEY_SNAP_TO_BUTTON, true)
+        set(value) = prefs.edit().putBoolean(KEY_SNAP_TO_BUTTON, value).apply()
+
     var language: String
         get() = prefs.getString(KEY_LANGUAGE, "system") ?: "system"
         set(value) = prefs.edit().putString(KEY_LANGUAGE, value).apply()
@@ -58,6 +66,7 @@ class CursorSettings(context: Context) {
         const val KEY_AUTO_PAUSE = "auto_pause"
         const val KEY_CONTROL_PANEL = "show_control_panel"
         const val KEY_CURSOR_ENABLED = "cursor_enabled"
+        const val KEY_SNAP_TO_BUTTON = "snap_to_button"
         const val KEY_LANGUAGE = "language"
     }
 }

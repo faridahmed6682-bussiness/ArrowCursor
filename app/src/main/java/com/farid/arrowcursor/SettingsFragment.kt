@@ -111,6 +111,13 @@ class SettingsFragment : Fragment(R.layout.fragment_settings) {
             CursorSettings(requireContext()).showControlPanel = isChecked
         }
 
+        // Magnetic pointer: snap to the nearest button when it stops.
+        val switchSnap: SwitchMaterial = view.findViewById(R.id.switch_snap_to_button)
+        switchSnap.isChecked = settings.snapToButton
+        switchSnap.setOnCheckedChangeListener { _, isChecked ->
+            CursorSettings(requireContext()).snapToButton = isChecked
+        }
+
         // Language.
         when (settings.language) {
             "en" -> radioLanguage.check(R.id.radio_language_english)

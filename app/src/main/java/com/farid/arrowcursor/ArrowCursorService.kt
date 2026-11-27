@@ -184,6 +184,8 @@ class ArrowCursorService : AccessibilityService() {
     }
 
     override fun onDestroy() {
+        gestureHandler.removeCallbacks(moveRunnable)
+        gestureHandler.removeCallbacks(snapRunnable)
         removeOverlayView()
         removeControlPanel()
         removePointerHandle()
@@ -209,6 +211,10 @@ class ArrowCursorService : AccessibilityService() {
     private fun moveCursor(dx: Float, dy: Float) {
         overlayView?.moveBy(dx, dy)
         updateHandlePosition()
+        // The pointer just moved: restart the 1-second dwell timer for
+        // the magnetic snap (it only fires after the pointer has sat
+        // still near a button for a full second).
+        scheduleSnap()
     }
 
     private fun moveCursorTo(x: Float, y: Float) {
@@ -275,6 +281,72 @@ class ArrowCursorService : AccessibilityService() {
             moveLoopRunning = false
             gestureHandler.removeCallbacks(moveRunnable)
         }
+    }
+
+    // --- Magnetic pointer: snap to the nearest button ---
+    // The snap fires only after the pointer has sat still near a button
+    // for a full second (SNAP_DELAY_MS). While the pointer is moving,
+    // or while the page is scrolling, the timer is reset/cancelled, so
+    // scrolling never fights the snap — exactly the rule the user set.
+    private val snapRunnable = Runnable { snapToNearestButton() }
+
+    private fun scheduleSnap() {
+        if (!settings.snapToButton) return
+        gestureHandler.removeCallbacks(snapRunnable)
+        gestureHandler.postDelayed(snapRunnable, SNAP_DELAY_MS)
+    }
+
+    private fun cancelSnap() {
+        gestureHandler.removeCallbacks(snapRunnable)
+    }
+
+    private fun snapToNearestButton() {
+        if (!settings.snapToButton) return
+        val x = overlayView?.cursorX ?: return
+        val y = overlayView?.cursorY ?: return
+        val node = findNearestClickable(x, y, SNAP_RADIUS_PX) ?: return
+        val bounds = android.graphics.Rect()
+        node.getBoundsInScreen(bounds)
+        node.recycle()
+        if (bounds.width() <= 0 || bounds.height() <= 0) return
+        moveCursorTo(bounds.centerX().toFloat(), bounds.centerY().toFloat())
+    }
+
+    /**
+     * Finds the clickable node whose centre is closest to the point,
+     * within maxDist px. Returns a copy the caller must recycle, or null.
+     */
+    private fun findNearestClickable(
+        x: Float,
+        y: Float,
+        maxDist: Float,
+    ): AccessibilityNodeInfo? {
+        val root = rootInActiveWindow ?: return null
+        var best: AccessibilityNodeInfo? = null
+        var bestDist = maxDist
+        fun walk(node: AccessibilityNodeInfo) {
+            val bounds = android.graphics.Rect()
+            node.getBoundsInScreen(bounds)
+            if (node.isClickable && bounds.width() > 0 && bounds.height() > 0) {
+                val d = kotlin.math.hypot(
+                    bounds.centerX().toFloat() - x,
+                    bounds.centerY().toFloat() - y,
+                )
+                if (d <= bestDist) {
+                    best?.recycle()
+                    best = AccessibilityNodeInfo.obtain(node)
+                    bestDist = d
+                }
+            }
+            for (i in 0 until node.childCount) {
+                val child = node.getChild(i) ?: continue
+                walk(child)
+                child.recycle()
+            }
+        }
+        walk(root)
+        root.recycle()
+        return best
     }
 
     private fun performClick() {
@@ -386,6 +458,9 @@ class ArrowCursorService : AccessibilityService() {
      * direction +1 = scroll up (see content above), -1 = scroll down.
      */
     private fun performScroll(direction: Float) {
+        // Scrolling cancels a pending snap: the page moves under the
+        // pointer, so snapping now would fight the scroll.
+        cancelSnap()
         val x = overlayView?.cursorX ?: return
         val y = overlayView?.cursorY ?: return
         if (scrollNodeAt(x, y, forward = direction < 0f)) return
@@ -401,6 +476,8 @@ class ArrowCursorService : AccessibilityService() {
      */
     private fun scrollToEdge(forward: Boolean, remaining: Int = 25) {
         if (remaining <= 0) return
+        // Same as performScroll: scrolling cancels a pending snap.
+        cancelSnap()
         val x = overlayView?.cursorX ?: return
         val y = overlayView?.cursorY ?: return
         if (scrollNodeAt(x, y, forward)) {
@@ -760,5 +837,9 @@ class ArrowCursorService : AccessibilityService() {
         const val EXTRA_DIRECTION = "direction"
         const val NOTIFICATION_ID = 1001
         const val CHANNEL_ID = "arrow_cursor_channel"
+        // Magnetic snap: how long the pointer must sit still near a
+        // button before it settles onto it, and how close is "near".
+        const val SNAP_DELAY_MS = 1000L
+        const val SNAP_RADIUS_PX = 80f
     }
 }

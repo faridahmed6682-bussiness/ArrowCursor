@@ -132,6 +132,13 @@
             android:layout_marginTop="16dp"
             android:text="@string/control_panel_label" />
 
+        <com.google.android.material.switchmaterial.SwitchMaterial
+            android:id="@+id/switch_snap_to_button"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:text="@string/snap_to_button_label" />
+
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
