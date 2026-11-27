@@ -105,6 +105,16 @@ class ArrowCursorIME : InputMethodService() {
             toggleLanguage()
             return true
         }
+        // Diagnostic: report Space/Enter receipt to the Home screen, so
+        // it is visible whether the key reaches this keyboard at all
+        // (Space-click in v1.0.11 did not work, and the cause could be
+        // the key never arriving here, not the click itself).
+        if (keyCode == KeyEvent.KEYCODE_SPACE) sendKeyTest("SPACE")
+        if (keyCode == KeyEvent.KEYCODE_ENTER ||
+            keyCode == KeyEvent.KEYCODE_DPAD_CENTER
+        ) {
+            sendKeyTest("ENTER")
+        }
         val speed = settings.speedPx.toFloat()
         val typing = isTextFieldFocused()
 
@@ -227,6 +237,13 @@ class ArrowCursorIME : InputMethodService() {
             .putString(KEY_LANGUAGE, language).apply()
         val msg = if (language == "bn") "বাংলা (জাতীয়)" else "English"
         Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
+    }
+
+    private fun sendKeyTest(name: String) {
+        sendBroadcast(
+            android.content.Intent(ArrowCursorService.ACTION_KEY_TEST)
+                .putExtra(ArrowCursorService.EXTRA_KEY_NAME, name),
+        )
     }
 
     // ---------- Jatiya (National) layout ----------

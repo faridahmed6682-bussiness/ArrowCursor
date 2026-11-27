@@ -208,6 +208,11 @@ class ArrowCursorService : AccessibilityService() {
     private fun performClick() {
         val x = overlayView?.cursorX ?: return
         val y = overlayView?.cursorY ?: return
+        // Most reliable: activate the accessibility node under the
+        // pointer directly (no injected touch, so nothing can swallow
+        // it). Falls back to a tap gesture for things that are not
+        // accessibility nodes (canvas, game, ...).
+        if (clickNodeAt(x, y)) return
         val path = Path().apply { moveTo(x, y) }
         val gesture = GestureDescription.Builder()
             .addStroke(GestureDescription.StrokeDescription(path, 0, 50))
@@ -216,24 +221,82 @@ class ArrowCursorService : AccessibilityService() {
     }
 
     /**
+     * Activates the deepest clickable accessibility node containing the
+     * point. Returns true if a node was clicked.
+     */
+    private fun clickNodeAt(x: Float, y: Float): Boolean {
+        val root = rootInActiveWindow ?: return false
+        val node = findClickableNodeAt(root, x.toInt(), y.toInt())
+        val ok = node?.performAction(AccessibilityNodeInfo.ACTION_CLICK) == true
+        node?.recycle()
+        if (node !== root) root.recycle()
+        return ok
+    }
+
+    private fun findClickableNodeAt(
+        node: AccessibilityNodeInfo,
+        x: Int,
+        y: Int,
+    ): AccessibilityNodeInfo? {
+        val bounds = android.graphics.Rect()
+        node.getBoundsInScreen(bounds)
+        if (!bounds.contains(x, y)) return null
+        // Deepest clickable node wins: check children first.
+        for (i in 0 until node.childCount) {
+            val child = node.getChild(i) ?: continue
+            val found = findClickableNodeAt(child, x, y)
+            if (found != null) return found
+            child.recycle()
+        }
+        return if (node.isClickable) node else null
+    }
+
+    /**
      * Dispatches an injected gesture at the pointer. The pointer's drag
      * handle is a touchable window sitting exactly on the pointer, so a
      * gesture starting there would land on our own handle instead of the
      * app below — hide the handle for the gesture, then put it back.
+     * The removal reaches the input dispatcher asynchronously, so the
+     * gesture is dispatched a moment later; dispatching in the same call
+     * stack can still land on the handle (this is why the v1.0.11 fix
+     * alone did not make Space-click work).
      */
     private val gestureHandler = Handler(Looper.getMainLooper())
 
     private fun dispatchPointerGesture(gesture: GestureDescription, restoreAfterMs: Long) {
         val hadHandle = handleAdded
         if (hadHandle) removePointerHandle()
-        dispatchGesture(gesture, null, null)
-        if (hadHandle) {
-            gestureHandler.postDelayed({
-                if (::settings.isInitialized && settings.cursorEnabled) {
-                    addPointerHandle()
+        val doDispatch = {
+            if (hadHandle) {
+                val callback = object : AccessibilityService.GestureResultCallback() {
+                    override fun onCompleted(gestureDescription: GestureDescription?) {
+                        restoreHandleDelayed(restoreAfterMs)
+                    }
+
+                    override fun onCancelled(gestureDescription: GestureDescription?) {
+                        restoreHandleDelayed(restoreAfterMs)
+                    }
                 }
-            }, restoreAfterMs)
+                dispatchGesture(gesture, callback, gestureHandler)
+            } else {
+                dispatchGesture(gesture, null, null)
+            }
         }
+        if (hadHandle) {
+            gestureHandler.postDelayed(doDispatch, 120)
+            // Backup restore in case the gesture callback never fires.
+            restoreHandleDelayed(120 + restoreAfterMs + 800)
+        } else {
+            doDispatch()
+        }
+    }
+
+    private fun restoreHandleDelayed(delayMs: Long) {
+        gestureHandler.postDelayed({
+            if (::settings.isInitialized && settings.cursorEnabled) {
+                addPointerHandle()
+            }
+        }, delayMs)
     }
 
     /**
