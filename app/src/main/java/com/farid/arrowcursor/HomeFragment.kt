@@ -11,6 +11,7 @@ import android.view.View
 import android.widget.Button
 import android.widget.TextView
 import android.widget.Toast
+import androidx.core.content.ContextCompat
 import androidx.fragment.app.Fragment
 
 class HomeFragment : Fragment(R.layout.fragment_home) {
@@ -67,9 +68,13 @@ class HomeFragment : Fragment(R.layout.fragment_home) {
 
     override fun onResume() {
         super.onResume()
-        requireContext().registerReceiver(
+        // Android 13+ requires an explicit exported flag for non-system broadcasts;
+        // the 2-arg registerReceiver() throws SecurityException on launch otherwise.
+        ContextCompat.registerReceiver(
+            requireContext(),
             keyTestReceiver,
-            IntentFilter(ArrowCursorService.ACTION_KEY_TEST)
+            IntentFilter(ArrowCursorService.ACTION_KEY_TEST),
+            ContextCompat.RECEIVER_NOT_EXPORTED
         )
         refreshStatus()
     }
