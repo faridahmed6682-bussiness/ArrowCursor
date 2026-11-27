@@ -241,7 +241,9 @@ class ArrowCursorService : AccessibilityService() {
                 PendingIntent.getBroadcast(
                     this,
                     0,
-                    Intent("com.farid.arrowcursor.TOGGLE_CURSOR"),
+                    Intent(this, CursorToggleReceiver::class.java).apply {
+                        action = "com.farid.arrowcursor.TOGGLE_CURSOR"
+                    },
                     PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
                 ),
             )
