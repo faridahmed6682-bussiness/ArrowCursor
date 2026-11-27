@@ -29,6 +29,10 @@ class CursorSettings(context: Context) {
         get() = prefs.getBoolean(KEY_AUTO_PAUSE, true)
         set(value) = prefs.edit().putBoolean(KEY_AUTO_PAUSE, value).apply()
 
+    var showControlPanel: Boolean
+        get() = prefs.getBoolean(KEY_CONTROL_PANEL, true)
+        set(value) = prefs.edit().putBoolean(KEY_CONTROL_PANEL, value).apply()
+
     var cursorEnabled: Boolean
         get() = prefs.getBoolean(KEY_CURSOR_ENABLED, false)
         set(value) = prefs.edit().putBoolean(KEY_CURSOR_ENABLED, value).apply()
@@ -52,6 +56,7 @@ class CursorSettings(context: Context) {
         const val KEY_COLOR = "cursor_color"
         const val KEY_CLICK_KEY = "click_key"
         const val KEY_AUTO_PAUSE = "auto_pause"
+        const val KEY_CONTROL_PANEL = "show_control_panel"
         const val KEY_CURSOR_ENABLED = "cursor_enabled"
         const val KEY_LANGUAGE = "language"
     }

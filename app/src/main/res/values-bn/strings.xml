@@ -34,6 +34,7 @@
     <string name="click_enter">Enter</string>
     <string name="click_both">Space + Enter</string>
     <string name="auto_pause_label">টাইপ করার সময় কার্সর কি বন্ধ রাখুন</string>
+    <string name="control_panel_label">অন-স্ক্রিন কন্ট্রোল প্যানেল দেখাও (টাচ অ্যারো + স্ক্রল)</string>
     <string name="language_label">ভাষা</string>
     <string name="language_system">সিস্টেমের ভাষা</string>
     <string name="language_english">English</string>

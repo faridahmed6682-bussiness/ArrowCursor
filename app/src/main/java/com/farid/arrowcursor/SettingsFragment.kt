@@ -104,6 +104,13 @@ class SettingsFragment : Fragment(R.layout.fragment_settings) {
             CursorSettings(requireContext()).autoPause = isChecked
         }
 
+        // On-screen control panel (touch arrows + scroll).
+        val switchControlPanel: SwitchMaterial = view.findViewById(R.id.switch_control_panel)
+        switchControlPanel.isChecked = settings.showControlPanel
+        switchControlPanel.setOnCheckedChangeListener { _, isChecked ->
+            CursorSettings(requireContext()).showControlPanel = isChecked
+        }
+
         // Language.
         when (settings.language) {
             "en" -> radioLanguage.check(R.id.radio_language_english)

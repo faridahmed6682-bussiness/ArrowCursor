@@ -11,6 +11,7 @@ import android.content.SharedPreferences
 import android.graphics.Path
 import android.graphics.PixelFormat
 import android.os.Build
+import android.view.Gravity
 import android.view.KeyEvent
 import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
@@ -24,13 +25,16 @@ class ArrowCursorService : AccessibilityService() {
     private var overlayView: CursorOverlayView? = null
     private var windowManager: WindowManager? = null
     private var overlayAdded = false
+    private var controlPanelView: ControlPanelView? = null
+    private var panelAdded = false
 
     private val prefsListener =
         SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
             if (key == CursorSettings.KEY_CURSOR_ENABLED ||
                 key == CursorSettings.KEY_SPEED ||
                 key == CursorSettings.KEY_SIZE ||
-                key == CursorSettings.KEY_COLOR
+                key == CursorSettings.KEY_COLOR ||
+                key == CursorSettings.KEY_CONTROL_PANEL
             ) {
                 updateOverlayState()
             }
@@ -104,6 +108,16 @@ class ArrowCursorService : AccessibilityService() {
                     false
                 }
             }
+            KeyEvent.KEYCODE_PAGE_UP -> {
+                performScroll(1f)
+                sendKeyTest("PGUP")
+                true
+            }
+            KeyEvent.KEYCODE_PAGE_DOWN -> {
+                performScroll(-1f)
+                sendKeyTest("PGDN")
+                true
+            }
             else -> false
         }
     }
@@ -118,6 +132,7 @@ class ArrowCursorService : AccessibilityService() {
 
     override fun onDestroy() {
         removeOverlayView()
+        removeControlPanel()
         NotificationManagerCompat.from(this).cancel(NOTIFICATION_ID)
         if (::settings.isInitialized) {
             settings.unregisterListener(prefsListener)
@@ -127,6 +142,7 @@ class ArrowCursorService : AccessibilityService() {
 
     override fun onUnbind(intent: Intent?): Boolean {
         removeOverlayView()
+        removeControlPanel()
         return super.onUnbind(intent)
     }
 
@@ -140,6 +156,27 @@ class ArrowCursorService : AccessibilityService() {
         val path = Path().apply { moveTo(x, y) }
         val gesture = GestureDescription.Builder()
             .addStroke(GestureDescription.StrokeDescription(path, 0, 50))
+            .build()
+        dispatchGesture(gesture, null, null)
+    }
+
+    /**
+     * Scrolls the app under the pointer with a swipe gesture.
+     * direction +1 = scroll up (see content above), -1 = scroll down.
+     */
+    private fun performScroll(direction: Float) {
+        val x = overlayView?.cursorX ?: return
+        val y = overlayView?.cursorY ?: return
+        val height = resources.displayMetrics.heightPixels.toFloat()
+        val distance = height * 0.4f * direction
+        val startY = y.coerceIn(120f, height - 120f)
+        val endY = (startY + distance).coerceIn(0f, height)
+        val path = Path().apply {
+            moveTo(x, startY)
+            lineTo(x, endY)
+        }
+        val gesture = GestureDescription.Builder()
+            .addStroke(GestureDescription.StrokeDescription(path, 0, 150))
             .build()
         dispatchGesture(gesture, null, null)
     }
@@ -200,10 +237,56 @@ class ArrowCursorService : AccessibilityService() {
         if (settings.cursorEnabled) {
             applySettingsToOverlay()
             addOverlayView()
+            if (settings.showControlPanel) addControlPanel() else removeControlPanel()
         } else {
             removeOverlayView()
+            removeControlPanel()
         }
         showNotification()
+    }
+
+    private fun addControlPanel() {
+        if (panelAdded) return
+        val wm = windowManager ?: return
+        val density = resources.displayMetrics.density
+        val panel = ControlPanelView(
+            this,
+            stepPx = { settings.speedPx.toFloat() },
+            onMove = { dx, dy -> moveCursor(dx, dy) },
+            onClick = { performClick() },
+            onScroll = { direction -> performScroll(direction) },
+        )
+        val params = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+            PixelFormat.TRANSLUCENT,
+        ).apply {
+            gravity = Gravity.BOTTOM or Gravity.END
+            x = (16 * density).toInt()
+            y = (120 * density).toInt()
+        }
+        panel.bindParams(params)
+        wm.addView(panel, params)
+        controlPanelView = panel
+        panelAdded = true
+    }
+
+    private fun removeControlPanel() {
+        if (!panelAdded) return
+        val panel = controlPanelView ?: return
+        val wm = windowManager ?: return
+        panel.release()
+        try {
+            wm.removeView(panel)
+        } catch (e: IllegalArgumentException) {
+            // View was already removed.
+        }
+        controlPanelView = null
+        panelAdded = false
     }
 
     private fun showNotification() {

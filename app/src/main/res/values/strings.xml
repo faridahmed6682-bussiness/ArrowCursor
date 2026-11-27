@@ -34,6 +34,7 @@
     <string name="click_enter">Enter</string>
     <string name="click_both">Space + Enter</string>
     <string name="auto_pause_label">Pause cursor keys while typing</string>
+    <string name="control_panel_label">Show on-screen control panel (touch arrows + scroll)</string>
     <string name="language_label">Language</string>
     <string name="language_system">System default</string>
     <string name="language_english">English</string>
