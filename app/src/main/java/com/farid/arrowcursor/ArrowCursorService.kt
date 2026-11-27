@@ -54,7 +54,10 @@ class ArrowCursorService : AccessibilityService() {
     override fun onKeyEvent(event: KeyEvent): Boolean {
         if (event.action != KeyEvent.ACTION_DOWN) return false
         if (!settings.cursorEnabled) return false
-        if (settings.autoPause && isTypingTargetFocused()) return false
+
+        // Typing keys pause while a text field is focused so typing still works,
+        // but arrow keys ALWAYS move the pointer — like a real mouse.
+        val typingPaused = settings.autoPause && isTypingTargetFocused()
 
         val speed = settings.speedPx.toFloat()
         // `when` used as an expression: every branch ends in Boolean.
@@ -80,7 +83,9 @@ class ArrowCursorService : AccessibilityService() {
                 true
             }
             KeyEvent.KEYCODE_SPACE -> {
-                if (settings.clickKey == "space" || settings.clickKey == "both") {
+                if (typingPaused) {
+                    false
+                } else if (settings.clickKey == "space" || settings.clickKey == "both") {
                     performClick()
                     sendKeyTest("SPACE")
                     true
@@ -89,7 +94,9 @@ class ArrowCursorService : AccessibilityService() {
                 }
             }
             KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_DPAD_CENTER -> {
-                if (settings.clickKey == "enter" || settings.clickKey == "both") {
+                if (typingPaused) {
+                    false
+                } else if (settings.clickKey == "enter" || settings.clickKey == "both") {
                     performClick()
                     sendKeyTest("ENTER")
                     true
