@@ -628,14 +628,25 @@ class ArrowCursorService : AccessibilityService() {
      * (a page or item sitting off-screen to the side) — i.e. the node
      * scrolls sideways. A vertical list's items are full-width, so they
      * do not extend past the edges and it is correctly excluded.
-     * A ViewPager / HorizontalScrollView is always sideways, even when
-     * its off-screen pages are not in the accessibility tree as
-     * children (then the child-bounds check below would miss it).
+     * A pager is always sideways, even when its off-screen pages are
+     * not in the accessibility tree as children (then the child-bounds
+     * check below would miss it). Samsung's One UI Home and other
+     * launchers use their own pager classes (PagedView, Workspace,
+     * CellLayout, ...), not just ViewPager, so those names count too —
+     * the sideways scroll did nothing on the home screen in v1.0.25
+     * because the launcher's pager matched none of them (user,
+     * 2026-11-28).
      */
     private fun isHorizontallyScrollable(node: AccessibilityNodeInfo): Boolean {
         val className = node.className?.toString() ?: ""
         if (className.contains("ViewPager") ||
-            className.contains("HorizontalScrollView")
+            className.contains("HorizontalScrollView") ||
+            className.contains("Pager") ||
+            className.contains("PagedView") ||
+            className.contains("Workspace") ||
+            className.contains("CellLayout") ||
+            className.contains("Launcher") ||
+            className.contains("DragLayer")
         ) {
             return true
         }
@@ -663,11 +674,15 @@ class ArrowCursorService : AccessibilityService() {
         // nothing sideways in v1.0.18. With no sideways node, the
         // horizontal fling below does it (home-screen pages, carousels).
         if (scrollNodeAt(x, y, forward = direction < 0f, horizontal = true)) return
-        val distance = resources.displayMetrics.widthPixels * 0.5f * direction
-        // A fast fling (120 ms), not a slow drag: on the home screen a
-        // slow drag starting on an app icon is taken as "move the icon",
-        // while a quick flick changes the page.
-        performSwipe(distance, 0f, durationMs = 120)
+        // No sideways node found (the launcher's pager often exposes no
+        // sideways node at all). Fall back to a deliberate swipe across
+        // most of the screen: long enough (60% of the width) and slow
+        // enough (200 ms) to read as a page change, not a tap, but fast
+        // enough not to be taken as dragging an app icon. The 120 ms
+        // fling in v1.0.22 was too quick to register on the home screen
+        // (user, 2026-11-28).
+        val distance = resources.displayMetrics.widthPixels * 0.6f * direction
+        performSwipe(distance, 0f, durationMs = 200)
     }
 
     private fun performSwipe(dx: Float, dy: Float, durationMs: Int = 300) {
