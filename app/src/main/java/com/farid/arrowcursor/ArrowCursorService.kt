@@ -15,6 +15,7 @@ import android.graphics.PixelFormat
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.view.Gravity
 import android.view.KeyEvent
 import android.view.MotionEvent
@@ -67,8 +68,18 @@ class ArrowCursorService : AccessibilityService() {
                     intent.getFloatExtra(EXTRA_DX, 0f),
                     intent.getFloatExtra(EXTRA_DY, 0f),
                 )
+                "moveStart" -> moveStart(
+                    intent.getFloatExtra(EXTRA_DX, 0f),
+                    intent.getFloatExtra(EXTRA_DY, 0f),
+                )
+                "moveStop" -> moveStop(
+                    intent.getFloatExtra(EXTRA_DX, 0f),
+                    intent.getFloatExtra(EXTRA_DY, 0f),
+                )
                 "click" -> performClick()
                 "scroll" -> performScroll(intent.getFloatExtra(EXTRA_DIRECTION, 0f))
+                "scrollTop" -> scrollToEdge(forward = false)
+                "scrollBottom" -> scrollToEdge(forward = true)
                 "hscroll" -> performHorizontalScroll(
                     intent.getFloatExtra(EXTRA_DIRECTION, 0f),
                 )
@@ -205,6 +216,58 @@ class ArrowCursorService : AccessibilityService() {
         updateHandlePosition()
     }
 
+    // --- Smooth pointer movement (like a computer's Mouse Keys) ---
+    // Holding an arrow key used to jump the pointer by a fixed step on
+    // every key-repeat event, which feels jerky. Instead, while a key is
+    // held the pointer glides continuously (60 fps) and accelerates the
+    // longer it is held — slow and precise at first, fast across the
+    // screen after a moment — exactly how Windows Mouse Keys behaves.
+    private var moveDirX = 0f
+    private var moveDirY = 0f
+    private var moveStartTime = 0L
+    private var moveLoopRunning = false
+
+    private val moveRunnable = object : Runnable {
+        override fun run() {
+            if (!moveLoopRunning || (moveDirX == 0f && moveDirY == 0f)) {
+                moveLoopRunning = false
+                return
+            }
+            val heldMs = SystemClock.uptimeMillis() - moveStartTime
+            // Safety: never glide forever if a key-up was missed.
+            if (heldMs > 10_000L) {
+                moveDirX = 0f
+                moveDirY = 0f
+                moveLoopRunning = false
+                return
+            }
+            // Accelerate: 1x at first, up to 4x after ~1.5 s held.
+            val accel = (1f + heldMs / 500f).coerceAtMost(4f)
+            val step = 7f * accel
+            moveCursor(moveDirX * step, moveDirY * step)
+            gestureHandler.postDelayed(this, 16)
+        }
+    }
+
+    private fun moveStart(dx: Float, dy: Float) {
+        if (dx != 0f) moveDirX = if (dx > 0f) 1f else -1f
+        if (dy != 0f) moveDirY = if (dy > 0f) 1f else -1f
+        if (!moveLoopRunning) {
+            moveLoopRunning = true
+            moveStartTime = SystemClock.uptimeMillis()
+            gestureHandler.post(moveRunnable)
+        }
+    }
+
+    private fun moveStop(dx: Float, dy: Float) {
+        if (dx != 0f) moveDirX = 0f
+        if (dy != 0f) moveDirY = 0f
+        if (moveDirX == 0f && moveDirY == 0f) {
+            moveLoopRunning = false
+            gestureHandler.removeCallbacks(moveRunnable)
+        }
+    }
+
     private fun performClick() {
         val x = overlayView?.cursorX ?: return
         val y = overlayView?.cursorY ?: return
@@ -286,9 +349,13 @@ class ArrowCursorService : AccessibilityService() {
             Unit
         }
         if (hadHandle) {
-            gestureHandler.postDelayed(doDispatch, 120)
+            // The handle removal reaches the input dispatcher
+            // asynchronously; a short wait keeps the gesture from landing
+            // on our own handle. 60 ms is enough on this device and makes
+            // the tap/scroll feel noticeably quicker than 120 ms.
+            gestureHandler.postDelayed(doDispatch, 60)
             // Backup restore in case the gesture callback never fires.
-            restoreHandleDelayed(120 + restoreAfterMs + 800)
+            restoreHandleDelayed(60 + restoreAfterMs + 800)
         } else {
             doDispatch()
         }
@@ -303,12 +370,83 @@ class ArrowCursorService : AccessibilityService() {
     }
 
     /**
-     * Scrolls the app under the pointer with a swipe gesture.
+     * Scrolls the app under the pointer. Primary path is an accessibility
+     * action on the scrollable node (instant — no gesture, no delay, so
+     * it works even where injected gestures fail). Falls back to a swipe
+     * gesture for content that exposes no scrollable node (canvas, ...).
      * direction +1 = scroll up (see content above), -1 = scroll down.
      */
     private fun performScroll(direction: Float) {
+        val x = overlayView?.cursorX ?: return
+        val y = overlayView?.cursorY ?: return
+        if (scrollNodeAt(x, y, forward = direction < 0f)) return
         val distance = resources.displayMetrics.heightPixels * 0.4f * direction
         performSwipe(0f, distance)
+    }
+
+    /**
+     * Jumps to the very top (forward=false) or bottom (forward=true) of
+     * the page by scrolling the node until it cannot scroll further,
+     * one step at a time so the view can catch up. Falls back to one
+     * long swipe when no scrollable node is available.
+     */
+    private fun scrollToEdge(forward: Boolean, remaining: Int = 25) {
+        if (remaining <= 0) return
+        val x = overlayView?.cursorX ?: return
+        val y = overlayView?.cursorY ?: return
+        if (scrollNodeAt(x, y, forward)) {
+            gestureHandler.postDelayed({ scrollToEdge(forward, remaining - 1) }, 90)
+        } else {
+            val distance = resources.displayMetrics.heightPixels * 1.2f *
+                if (forward) -1f else 1f
+            performSwipe(0f, distance)
+        }
+    }
+
+    /**
+     * Scrolls the deepest scrollable node under the point (deepest first,
+     * so a nested list wins over its parent). Returns true if a node
+     * actually scrolled.
+     */
+    private fun scrollNodeAt(x: Float, y: Float, forward: Boolean): Boolean {
+        val root = rootInActiveWindow ?: return false
+        val action = if (forward) {
+            AccessibilityNodeInfo.ACTION_SCROLL_FORWARD
+        } else {
+            AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD
+        }
+        val candidates = ArrayList<AccessibilityNodeInfo>()
+        collectScrollableNodesAt(root, x.toInt(), y.toInt(), candidates)
+        var ok = false
+        for (node in candidates) {
+            if (node.performAction(action)) {
+                ok = true
+                break
+            }
+        }
+        for (node in candidates) node.recycle()
+        if (!candidates.contains(root)) root.recycle()
+        return ok
+    }
+
+    /** Collects scrollable nodes containing the point, deepest first. */
+    private fun collectScrollableNodesAt(
+        node: AccessibilityNodeInfo,
+        x: Int,
+        y: Int,
+        out: MutableList<AccessibilityNodeInfo>,
+    ) {
+        val bounds = android.graphics.Rect()
+        node.getBoundsInScreen(bounds)
+        if (!bounds.contains(x, y)) return
+        for (i in 0 until node.childCount) {
+            val child = node.getChild(i) ?: continue
+            collectScrollableNodesAt(child, x, y, out)
+            // Do not recycle a child that was collected (the caller
+            // recycles it after use); recycle the rest to avoid leaks.
+            if (!out.contains(child)) child.recycle()
+        }
+        if (node.isScrollable) out.add(node)
     }
 
     private fun performHorizontalScroll(direction: Float) {
@@ -330,7 +468,9 @@ class ArrowCursorService : AccessibilityService() {
             lineTo(endX, endY)
         }
         val gesture = GestureDescription.Builder()
-            .addStroke(GestureDescription.StrokeDescription(path, 0, 150))
+            // 300 ms: a smooth glide, not a fast fling — reads as a
+            // scroll, and the app has time to follow it.
+            .addStroke(GestureDescription.StrokeDescription(path, 0, 300))
             .build()
         dispatchPointerGesture(gesture, 250)
     }

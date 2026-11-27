@@ -64,6 +64,9 @@ class ArrowCursorIME : InputMethodService() {
         super.onFinishInput()
         pendingPreKar = null
         pendingPreKarAfterHasant = false
+        // Safety: if an arrow key was held when the input session ended,
+        // its key-up may never arrive — stop any smooth glide.
+        sendCommand("moveStop", dx = 1f, dy = 1f)
     }
 
     override fun onUpdateSelection(
@@ -115,6 +118,13 @@ class ArrowCursorIME : InputMethodService() {
         ) {
             sendKeyTest("ENTER")
         }
+        // Same diagnostic for the scroll keys: PgUp/PgDn/Home/End did not
+        // scroll on the user's phone in v1.0.14, and this shows whether
+        // the key reaches the keyboard at all.
+        if (keyCode == KeyEvent.KEYCODE_PAGE_UP) sendKeyTest("PGUP")
+        if (keyCode == KeyEvent.KEYCODE_PAGE_DOWN) sendKeyTest("PGDN")
+        if (keyCode == KeyEvent.KEYCODE_MOVE_HOME) sendKeyTest("HOME")
+        if (keyCode == KeyEvent.KEYCODE_MOVE_END) sendKeyTest("END")
         val speed = settings.speedPx.toFloat()
         val typing = isTextFieldFocused()
 
@@ -157,25 +167,32 @@ class ArrowCursorIME : InputMethodService() {
             KeyEvent.KEYCODE_DPAD_UP -> {
                 pendingPreKar = null
                 pendingPreKarAfterHasant = false
-                sendCommand("move", dy = -speed)
+                // One step on the first press; while the key is held the
+                // service glides the pointer smoothly (moveStart) instead
+                // of jumping on every key repeat.
+                if (event.repeatCount == 0) sendCommand("move", dy = -speed)
+                sendCommand("moveStart", dy = -1f)
                 true
             }
             KeyEvent.KEYCODE_DPAD_DOWN -> {
                 pendingPreKar = null
                 pendingPreKarAfterHasant = false
-                sendCommand("move", dy = speed)
+                if (event.repeatCount == 0) sendCommand("move", dy = speed)
+                sendCommand("moveStart", dy = 1f)
                 true
             }
             KeyEvent.KEYCODE_DPAD_LEFT -> {
                 pendingPreKar = null
                 pendingPreKarAfterHasant = false
-                sendCommand("move", dx = -speed)
+                if (event.repeatCount == 0) sendCommand("move", dx = -speed)
+                sendCommand("moveStart", dx = -1f)
                 true
             }
             KeyEvent.KEYCODE_DPAD_RIGHT -> {
                 pendingPreKar = null
                 pendingPreKarAfterHasant = false
-                sendCommand("move", dx = speed)
+                if (event.repeatCount == 0) sendCommand("move", dx = speed)
+                sendCommand("moveStart", dx = 1f)
                 true
             }
             KeyEvent.KEYCODE_SPACE -> {
@@ -217,7 +234,7 @@ class ArrowCursorIME : InputMethodService() {
                 } else {
                     pendingPreKar = null
                     pendingPreKarAfterHasant = false
-                    sendCommand("scroll", direction = 5f)
+                    sendCommand("scrollTop")
                     true
                 }
             }
@@ -227,7 +244,7 @@ class ArrowCursorIME : InputMethodService() {
                 } else {
                     pendingPreKar = null
                     pendingPreKarAfterHasant = false
-                    sendCommand("scroll", direction = -5f)
+                    sendCommand("scrollBottom")
                     true
                 }
             }
@@ -240,7 +257,8 @@ class ArrowCursorIME : InputMethodService() {
                 else {
                     pendingPreKar = null
                     pendingPreKarAfterHasant = false
-                    sendCommand("move", dy = -speed)
+                    if (event.repeatCount == 0) sendCommand("move", dy = -speed)
+                    sendCommand("moveStart", dy = -1f)
                     true
                 }
             }
@@ -249,7 +267,8 @@ class ArrowCursorIME : InputMethodService() {
                 else {
                     pendingPreKar = null
                     pendingPreKarAfterHasant = false
-                    sendCommand("move", dy = speed)
+                    if (event.repeatCount == 0) sendCommand("move", dy = speed)
+                    sendCommand("moveStart", dy = 1f)
                     true
                 }
             }
@@ -258,7 +277,8 @@ class ArrowCursorIME : InputMethodService() {
                 else {
                     pendingPreKar = null
                     pendingPreKarAfterHasant = false
-                    sendCommand("move", dx = -speed)
+                    if (event.repeatCount == 0) sendCommand("move", dx = -speed)
+                    sendCommand("moveStart", dx = -1f)
                     true
                 }
             }
@@ -267,7 +287,8 @@ class ArrowCursorIME : InputMethodService() {
                 else {
                     pendingPreKar = null
                     pendingPreKarAfterHasant = false
-                    sendCommand("move", dx = speed)
+                    if (event.repeatCount == 0) sendCommand("move", dx = speed)
+                    sendCommand("moveStart", dx = 1f)
                     true
                 }
             }
@@ -283,7 +304,7 @@ class ArrowCursorIME : InputMethodService() {
                 else {
                     pendingPreKar = null
                     pendingPreKarAfterHasant = false
-                    sendCommand("scroll", direction = 5f)
+                    sendCommand("scrollTop")
                     true
                 }
             }
@@ -292,7 +313,7 @@ class ArrowCursorIME : InputMethodService() {
                 else {
                     pendingPreKar = null
                     pendingPreKarAfterHasant = false
-                    sendCommand("scroll", direction = -5f)
+                    sendCommand("scrollBottom")
                     true
                 }
             }
@@ -329,12 +350,53 @@ class ArrowCursorIME : InputMethodService() {
 
     override fun onKeyUp(keyCode: Int, event: KeyEvent): Boolean {
         return when (keyCode) {
-            KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN,
-            KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT,
+            // Releasing an arrow stops the smooth glide on that axis.
+            KeyEvent.KEYCODE_DPAD_UP -> {
+                sendCommand("moveStop", dy = -1f)
+                true
+            }
+            KeyEvent.KEYCODE_DPAD_DOWN -> {
+                sendCommand("moveStop", dy = 1f)
+                true
+            }
+            KeyEvent.KEYCODE_DPAD_LEFT -> {
+                sendCommand("moveStop", dx = -1f)
+                true
+            }
+            KeyEvent.KEYCODE_DPAD_RIGHT -> {
+                sendCommand("moveStop", dx = 1f)
+                true
+            }
+            KeyEvent.KEYCODE_NUMPAD_8 -> {
+                if (isTextFieldFocused()) super.onKeyUp(keyCode, event)
+                else {
+                    sendCommand("moveStop", dy = -1f)
+                    true
+                }
+            }
+            KeyEvent.KEYCODE_NUMPAD_2 -> {
+                if (isTextFieldFocused()) super.onKeyUp(keyCode, event)
+                else {
+                    sendCommand("moveStop", dy = 1f)
+                    true
+                }
+            }
+            KeyEvent.KEYCODE_NUMPAD_4 -> {
+                if (isTextFieldFocused()) super.onKeyUp(keyCode, event)
+                else {
+                    sendCommand("moveStop", dx = -1f)
+                    true
+                }
+            }
+            KeyEvent.KEYCODE_NUMPAD_6 -> {
+                if (isTextFieldFocused()) super.onKeyUp(keyCode, event)
+                else {
+                    sendCommand("moveStop", dx = 1f)
+                    true
+                }
+            }
             KeyEvent.KEYCODE_PAGE_UP, KeyEvent.KEYCODE_PAGE_DOWN -> true
             KeyEvent.KEYCODE_MOVE_HOME, KeyEvent.KEYCODE_MOVE_END,
-            KeyEvent.KEYCODE_NUMPAD_8, KeyEvent.KEYCODE_NUMPAD_2,
-            KeyEvent.KEYCODE_NUMPAD_4, KeyEvent.KEYCODE_NUMPAD_6,
             KeyEvent.KEYCODE_NUMPAD_5, KeyEvent.KEYCODE_NUMPAD_7,
             KeyEvent.KEYCODE_NUMPAD_1, KeyEvent.KEYCODE_NUMPAD_9,
             KeyEvent.KEYCODE_NUMPAD_3, KeyEvent.KEYCODE_NUMPAD_ENTER -> {
