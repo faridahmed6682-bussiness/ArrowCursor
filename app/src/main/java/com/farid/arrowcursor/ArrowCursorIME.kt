@@ -17,6 +17,10 @@ import android.widget.Toast
  * touch. The phone works exactly like a computer:
  * - Arrow keys move the pointer, like a mouse. Space/Enter click, except
  *   while a text field is focused, where they type normally.
+ * - Shift+arrow scrolls in that direction (Up/Down = up/down, Left/Right
+ *   = sideways), like Shift+PgUp/PgDn. Ctrl+arrow (not typing) is the
+ *   fine step for small buttons. In a text field Shift+arrow selects
+ *   text and Ctrl+arrow jumps by word, as on a computer.
  * - Letters type, in English or in Bengali with the Jatiya (National,
  *   BDS 1738:2018 = Bijoy) fixed layout: each key gives one Bengali
  *   character, Shift gives the second (j = ক, Shift+J = খ, g = ্ link
@@ -103,9 +107,32 @@ class ArrowCursorIME : InputMethodService() {
             toggleLanguage()
             return true
         }
+        val speed = settings.speedPx.toFloat()
+        val typing = isTextFieldFocused()
+        // Step sizes: plain arrow = normal step, Ctrl+arrow = fine
+        // step (for small buttons). Shift+arrow is scroll now (below),
+        // so the fine step moved to Ctrl+arrow (user, 2026-11-28).
+        val step = speed
+        val fineStep = maxOf(2f, speed / 6f)
+        val normalTick = 7f
+        val fineTick = 2f
+        // Ctrl+arrow (and Ctrl+numpad-arrow) while NOT typing is the
+        // fine step, not a system shortcut — let it fall through to
+        // the when below. In a text field Ctrl+arrow still passes
+        // through (word jump / selection), as before.
+        val isFineArrow = event.isCtrlPressed && !typing && (
+            keyCode == KeyEvent.KEYCODE_DPAD_UP ||
+                keyCode == KeyEvent.KEYCODE_DPAD_DOWN ||
+                keyCode == KeyEvent.KEYCODE_DPAD_LEFT ||
+                keyCode == KeyEvent.KEYCODE_DPAD_RIGHT ||
+                keyCode == KeyEvent.KEYCODE_NUMPAD_8 ||
+                keyCode == KeyEvent.KEYCODE_NUMPAD_2 ||
+                keyCode == KeyEvent.KEYCODE_NUMPAD_4 ||
+                keyCode == KeyEvent.KEYCODE_NUMPAD_6
+            )
         // Never swallow system shortcuts (Ctrl+Space switches keyboards,
         // Ctrl+C/V copy/paste, ...).
-        if (event.isCtrlPressed || event.isMetaPressed) {
+        if ((event.isCtrlPressed || event.isMetaPressed) && !isFineArrow) {
             return super.onKeyDown(keyCode, event)
         }
         // Alt+Shift switches the language, like Windows. Either order.
@@ -135,20 +162,9 @@ class ArrowCursorIME : InputMethodService() {
         if (keyCode == KeyEvent.KEYCODE_PAGE_DOWN) sendKeyTest("PGDN")
         if (keyCode == KeyEvent.KEYCODE_MOVE_HOME) sendKeyTest("HOME")
         if (keyCode == KeyEvent.KEYCODE_MOVE_END) sendKeyTest("END")
-        val speed = settings.speedPx.toFloat()
-        val typing = isTextFieldFocused()
-
-        // Shift+arrow = fine step (for small buttons): a tiny step per
-        // press and a slow glide while held. Plain arrow = normal step.
-        // (The step itself is adjustable in the app: Settings -> speed,
-        // 8..64 px per press.)
-        val fineMove = event.isShiftPressed
-        val moveStep = if (fineMove) maxOf(2f, speed / 6f) else speed
-        val moveTick = if (fineMove) 2f else 7f
-
         // Shift+arrow in a text field selects text (computer-like); it
-        // does not move the pointer. Same for Shift+PgUp/PgDn (selects
-        // to the top/bottom of the visible text).
+        // does not scroll or move the pointer. Same for Shift+PgUp/PgDn
+        // (selects to the top/bottom of the visible text).
         if (event.isShiftPressed && typing) {
             when (keyCode) {
                 KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN,
@@ -198,32 +214,74 @@ class ArrowCursorIME : InputMethodService() {
             KeyEvent.KEYCODE_DPAD_UP -> {
                 pendingPreKar = null
                 pendingPreKarAfterHasant = false
-                // One step on the first press; while the key is held the
-                // service glides the pointer smoothly (moveStart) instead
-                // of jumping on every key repeat.
-                if (event.repeatCount == 0) sendCommand("move", dy = -moveStep)
-                sendCommand("moveStart", dy = -moveTick)
+                // Shift+Up = scroll up. Ctrl+Up = fine step (tiny move
+                // for small buttons). Plain Up = normal step; while the
+                // key is held the service glides the pointer smoothly
+                // (moveStart) instead of jumping on every key repeat.
+                when {
+                    event.isShiftPressed -> sendCommand("scroll", direction = 1f)
+                    event.isCtrlPressed -> {
+                        if (event.repeatCount == 0) sendCommand("move", dy = -fineStep)
+                        sendCommand("moveStart", dy = -fineTick)
+                    }
+                    else -> {
+                        if (event.repeatCount == 0) sendCommand("move", dy = -step)
+                        sendCommand("moveStart", dy = -normalTick)
+                    }
+                }
                 true
             }
             KeyEvent.KEYCODE_DPAD_DOWN -> {
                 pendingPreKar = null
                 pendingPreKarAfterHasant = false
-                if (event.repeatCount == 0) sendCommand("move", dy = moveStep)
-                sendCommand("moveStart", dy = moveTick)
+                // Shift+Down = scroll down. Ctrl+Down = fine step.
+                when {
+                    event.isShiftPressed -> sendCommand("scroll", direction = -1f)
+                    event.isCtrlPressed -> {
+                        if (event.repeatCount == 0) sendCommand("move", dy = fineStep)
+                        sendCommand("moveStart", dy = fineTick)
+                    }
+                    else -> {
+                        if (event.repeatCount == 0) sendCommand("move", dy = step)
+                        sendCommand("moveStart", dy = normalTick)
+                    }
+                }
                 true
             }
             KeyEvent.KEYCODE_DPAD_LEFT -> {
                 pendingPreKar = null
                 pendingPreKarAfterHasant = false
-                if (event.repeatCount == 0) sendCommand("move", dx = -moveStep)
-                sendCommand("moveStart", dx = -moveTick)
+                // Shift+Left = scroll left (sideways). Ctrl+Left =
+                // fine step. Plain Left = normal step.
+                when {
+                    event.isShiftPressed -> sendCommand("hscroll", direction = 1f)
+                    event.isCtrlPressed -> {
+                        if (event.repeatCount == 0) sendCommand("move", dx = -fineStep)
+                        sendCommand("moveStart", dx = -fineTick)
+                    }
+                    else -> {
+                        if (event.repeatCount == 0) sendCommand("move", dx = -step)
+                        sendCommand("moveStart", dx = -normalTick)
+                    }
+                }
                 true
             }
             KeyEvent.KEYCODE_DPAD_RIGHT -> {
                 pendingPreKar = null
                 pendingPreKarAfterHasant = false
-                if (event.repeatCount == 0) sendCommand("move", dx = moveStep)
-                sendCommand("moveStart", dx = moveTick)
+                // Shift+Right = scroll right (sideways). Ctrl+Right =
+                // fine step. Plain Right = normal step.
+                when {
+                    event.isShiftPressed -> sendCommand("hscroll", direction = -1f)
+                    event.isCtrlPressed -> {
+                        if (event.repeatCount == 0) sendCommand("move", dx = fineStep)
+                        sendCommand("moveStart", dx = fineTick)
+                    }
+                    else -> {
+                        if (event.repeatCount == 0) sendCommand("move", dx = step)
+                        sendCommand("moveStart", dx = normalTick)
+                    }
+                }
                 true
             }
             KeyEvent.KEYCODE_SPACE -> {
@@ -300,8 +358,17 @@ class ArrowCursorIME : InputMethodService() {
                 else {
                     pendingPreKar = null
                     pendingPreKarAfterHasant = false
-                    if (event.repeatCount == 0) sendCommand("move", dy = -moveStep)
-                    sendCommand("moveStart", dy = -moveTick)
+                    when {
+                        event.isShiftPressed -> sendCommand("scroll", direction = 1f)
+                        event.isCtrlPressed -> {
+                            if (event.repeatCount == 0) sendCommand("move", dy = -fineStep)
+                            sendCommand("moveStart", dy = -fineTick)
+                        }
+                        else -> {
+                            if (event.repeatCount == 0) sendCommand("move", dy = -step)
+                            sendCommand("moveStart", dy = -normalTick)
+                        }
+                    }
                     true
                 }
             }
@@ -310,8 +377,17 @@ class ArrowCursorIME : InputMethodService() {
                 else {
                     pendingPreKar = null
                     pendingPreKarAfterHasant = false
-                    if (event.repeatCount == 0) sendCommand("move", dy = moveStep)
-                    sendCommand("moveStart", dy = moveTick)
+                    when {
+                        event.isShiftPressed -> sendCommand("scroll", direction = -1f)
+                        event.isCtrlPressed -> {
+                            if (event.repeatCount == 0) sendCommand("move", dy = fineStep)
+                            sendCommand("moveStart", dy = fineTick)
+                        }
+                        else -> {
+                            if (event.repeatCount == 0) sendCommand("move", dy = step)
+                            sendCommand("moveStart", dy = normalTick)
+                        }
+                    }
                     true
                 }
             }
@@ -320,8 +396,17 @@ class ArrowCursorIME : InputMethodService() {
                 else {
                     pendingPreKar = null
                     pendingPreKarAfterHasant = false
-                    if (event.repeatCount == 0) sendCommand("move", dx = -moveStep)
-                    sendCommand("moveStart", dx = -moveTick)
+                    when {
+                        event.isShiftPressed -> sendCommand("hscroll", direction = 1f)
+                        event.isCtrlPressed -> {
+                            if (event.repeatCount == 0) sendCommand("move", dx = -fineStep)
+                            sendCommand("moveStart", dx = -fineTick)
+                        }
+                        else -> {
+                            if (event.repeatCount == 0) sendCommand("move", dx = -step)
+                            sendCommand("moveStart", dx = -normalTick)
+                        }
+                    }
                     true
                 }
             }
@@ -330,8 +415,17 @@ class ArrowCursorIME : InputMethodService() {
                 else {
                     pendingPreKar = null
                     pendingPreKarAfterHasant = false
-                    if (event.repeatCount == 0) sendCommand("move", dx = moveStep)
-                    sendCommand("moveStart", dx = moveTick)
+                    when {
+                        event.isShiftPressed -> sendCommand("hscroll", direction = -1f)
+                        event.isCtrlPressed -> {
+                            if (event.repeatCount == 0) sendCommand("move", dx = fineStep)
+                            sendCommand("moveStart", dx = fineTick)
+                        }
+                        else -> {
+                            if (event.repeatCount == 0) sendCommand("move", dx = step)
+                            sendCommand("moveStart", dx = normalTick)
+                        }
+                    }
                     true
                 }
             }
