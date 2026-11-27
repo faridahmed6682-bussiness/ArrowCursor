@@ -13,6 +13,8 @@ import android.graphics.PixelFormat
 import android.os.Build
 import android.view.Gravity
 import android.view.KeyEvent
+import android.view.MotionEvent
+import android.view.View
 import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
@@ -27,6 +29,16 @@ class ArrowCursorService : AccessibilityService() {
     private var overlayAdded = false
     private var controlPanelView: ControlPanelView? = null
     private var panelAdded = false
+    private var pointerHandleView: View? = null
+    private var handleParams: WindowManager.LayoutParams? = null
+    private var handleAdded = false
+
+    // Pointer-drag state (finger on the pointer itself).
+    private var dragDownX = 0f
+    private var dragDownY = 0f
+    private var dragDownTime = 0L
+    private var dragStartCursorX = 0f
+    private var dragStartCursorY = 0f
 
     private val prefsListener =
         SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
@@ -133,6 +145,7 @@ class ArrowCursorService : AccessibilityService() {
     override fun onDestroy() {
         removeOverlayView()
         removeControlPanel()
+        removePointerHandle()
         NotificationManagerCompat.from(this).cancel(NOTIFICATION_ID)
         if (::settings.isInitialized) {
             settings.unregisterListener(prefsListener)
@@ -143,11 +156,18 @@ class ArrowCursorService : AccessibilityService() {
     override fun onUnbind(intent: Intent?): Boolean {
         removeOverlayView()
         removeControlPanel()
+        removePointerHandle()
         return super.onUnbind(intent)
     }
 
     private fun moveCursor(dx: Float, dy: Float) {
         overlayView?.moveBy(dx, dy)
+        updateHandlePosition()
+    }
+
+    private fun moveCursorTo(x: Float, y: Float) {
+        overlayView?.moveTo(x, y)
+        updateHandlePosition()
     }
 
     private fun performClick() {
@@ -165,15 +185,27 @@ class ArrowCursorService : AccessibilityService() {
      * direction +1 = scroll up (see content above), -1 = scroll down.
      */
     private fun performScroll(direction: Float) {
+        val distance = resources.displayMetrics.heightPixels * 0.4f * direction
+        performSwipe(0f, distance)
+    }
+
+    private fun performHorizontalScroll(direction: Float) {
+        val distance = resources.displayMetrics.widthPixels * 0.4f * direction
+        performSwipe(distance, 0f)
+    }
+
+    private fun performSwipe(dx: Float, dy: Float) {
         val x = overlayView?.cursorX ?: return
         val y = overlayView?.cursorY ?: return
+        val width = resources.displayMetrics.widthPixels.toFloat()
         val height = resources.displayMetrics.heightPixels.toFloat()
-        val distance = height * 0.4f * direction
+        val startX = x.coerceIn(120f, width - 120f)
         val startY = y.coerceIn(120f, height - 120f)
-        val endY = (startY + distance).coerceIn(0f, height)
+        val endX = (startX + dx).coerceIn(0f, width)
+        val endY = (startY + dy).coerceIn(0f, height)
         val path = Path().apply {
-            moveTo(x, startY)
-            lineTo(x, endY)
+            moveTo(startX, startY)
+            lineTo(endX, endY)
         }
         val gesture = GestureDescription.Builder()
             .addStroke(GestureDescription.StrokeDescription(path, 0, 150))
@@ -237,10 +269,12 @@ class ArrowCursorService : AccessibilityService() {
         if (settings.cursorEnabled) {
             applySettingsToOverlay()
             addOverlayView()
+            addPointerHandle()
             if (settings.showControlPanel) addControlPanel() else removeControlPanel()
         } else {
             removeOverlayView()
             removeControlPanel()
+            removePointerHandle()
         }
         showNotification()
     }
@@ -287,6 +321,110 @@ class ArrowCursorService : AccessibilityService() {
         }
         controlPanelView = null
         panelAdded = false
+    }
+
+    /**
+     * Invisible touch zone around the pointer itself, so the pointer can be
+     * moved with a finger and no panel has to stay on screen:
+     * slow drag = move, quick tap = click, fast flick = scroll.
+     */
+    private fun addPointerHandle() {
+        if (handleAdded) return
+        val wm = windowManager ?: return
+        val density = resources.displayMetrics.density
+        val size = (72 * density).toInt()
+        val handle = View(this).apply {
+            setOnTouchListener { _, event ->
+                handlePointerTouch(event)
+                true
+            }
+        }
+        val params = WindowManager.LayoutParams(
+            size,
+            size,
+            WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+            PixelFormat.TRANSLUCENT,
+        ).apply {
+            gravity = Gravity.TOP or Gravity.START
+        }
+        wm.addView(handle, params)
+        pointerHandleView = handle
+        handleParams = params
+        handleAdded = true
+        updateHandlePosition()
+    }
+
+    private fun removePointerHandle() {
+        if (!handleAdded) return
+        val handle = pointerHandleView ?: return
+        val wm = windowManager ?: return
+        try {
+            wm.removeView(handle)
+        } catch (e: IllegalArgumentException) {
+            // View was already removed.
+        }
+        pointerHandleView = null
+        handleParams = null
+        handleAdded = false
+    }
+
+    private fun updateHandlePosition() {
+        if (!handleAdded) return
+        val wm = windowManager ?: return
+        val handle = pointerHandleView ?: return
+        val params = handleParams ?: return
+        val half = (36 * resources.displayMetrics.density).toInt()
+        val x = overlayView?.cursorX ?: return
+        val y = overlayView?.cursorY ?: return
+        params.x = (x - half).toInt()
+        params.y = (y - half).toInt()
+        try {
+            wm.updateViewLayout(handle, params)
+        } catch (e: IllegalArgumentException) {
+            // Handle was already removed.
+        }
+    }
+
+    private fun handlePointerTouch(event: MotionEvent) {
+        when (event.action) {
+            MotionEvent.ACTION_DOWN -> {
+                dragDownX = event.rawX
+                dragDownY = event.rawY
+                dragDownTime = event.eventTime
+                dragStartCursorX = overlayView?.cursorX ?: event.rawX
+                dragStartCursorY = overlayView?.cursorY ?: event.rawY
+            }
+            MotionEvent.ACTION_MOVE -> {
+                val dx = event.rawX - dragDownX
+                val dy = event.rawY - dragDownY
+                moveCursorTo(dragStartCursorX + dx, dragStartCursorY + dy)
+            }
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                val dx = event.rawX - dragDownX
+                val dy = event.rawY - dragDownY
+                val duration = (event.eventTime - dragDownTime).coerceAtLeast(1L)
+                val distance = kotlin.math.sqrt(dx * dx + dy * dy)
+                val velocity = distance / duration * 1000f
+                when {
+                    distance < 30f && duration < 300L -> performClick()
+                    velocity > 1000f && duration < 350L && distance > 120f -> {
+                        // Fast flick: scroll, pointer stays where it was.
+                        moveCursorTo(dragStartCursorX, dragStartCursorY)
+                        if (kotlin.math.abs(dy) > kotlin.math.abs(dx)) {
+                            performScroll(if (dy < 0) -1f else 1f)
+                        } else {
+                            performHorizontalScroll(if (dx < 0) -1f else 1f)
+                        }
+                    }
+                    else -> {
+                        // Slow drag: pointer stays where the finger left it.
+                    }
+                }
+            }
+        }
     }
 
     private fun showNotification() {

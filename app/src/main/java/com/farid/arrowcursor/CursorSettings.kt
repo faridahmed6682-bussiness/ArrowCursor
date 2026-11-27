@@ -30,7 +30,7 @@ class CursorSettings(context: Context) {
         set(value) = prefs.edit().putBoolean(KEY_AUTO_PAUSE, value).apply()
 
     var showControlPanel: Boolean
-        get() = prefs.getBoolean(KEY_CONTROL_PANEL, true)
+        get() = prefs.getBoolean(KEY_CONTROL_PANEL, false)
         set(value) = prefs.edit().putBoolean(KEY_CONTROL_PANEL, value).apply()
 
     var cursorEnabled: Boolean

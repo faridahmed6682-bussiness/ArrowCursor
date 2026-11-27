@@ -49,6 +49,13 @@ class CursorOverlayView(context: Context) : View(context) {
         invalidate()
     }
 
+    fun moveTo(x: Float, y: Float) {
+        val metrics = Resources.getSystem().displayMetrics
+        cursorX = x.coerceIn(0f, metrics.widthPixels.toFloat())
+        cursorY = y.coerceIn(0f, metrics.heightPixels.toFloat())
+        invalidate()
+    }
+
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
         val scale = cursorSizeDp / 28f
