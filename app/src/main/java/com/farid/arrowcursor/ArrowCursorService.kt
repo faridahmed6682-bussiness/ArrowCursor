@@ -536,6 +536,13 @@ class ArrowCursorService : AccessibilityService() {
     }
 
     private fun performHorizontalScroll(direction: Float) {
+        // Scrolling cancels a pending snap, same as vertical scroll.
+        cancelSnap()
+        val x = overlayView?.cursorX ?: return
+        val y = overlayView?.cursorY ?: return
+        // Node scroll first (instant): forward = scroll right (see
+        // content on the right) = swipe left = direction -1.
+        if (scrollNodeAt(x, y, forward = direction < 0f)) return
         val distance = resources.displayMetrics.widthPixels * 0.4f * direction
         performSwipe(distance, 0f)
     }

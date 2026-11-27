@@ -137,11 +137,13 @@ class ArrowCursorIME : InputMethodService() {
         val moveTick = if (fineMove) 2f else 7f
 
         // Shift+arrow in a text field selects text (computer-like); it
-        // does not move the pointer.
+        // does not move the pointer. Same for Shift+PgUp/PgDn (selects
+        // to the top/bottom of the visible text).
         if (event.isShiftPressed && typing) {
             when (keyCode) {
                 KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN,
-                KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT -> {
+                KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT,
+                KeyEvent.KEYCODE_PAGE_UP, KeyEvent.KEYCODE_PAGE_DOWN -> {
                     return super.onKeyDown(keyCode, event)
                 }
             }
@@ -235,13 +237,25 @@ class ArrowCursorIME : InputMethodService() {
             KeyEvent.KEYCODE_PAGE_UP -> {
                 pendingPreKar = null
                 pendingPreKarAfterHasant = false
-                sendCommand("scroll", direction = 1f)
+                // Shift+PgUp = scroll sideways (left), like Shift+wheel
+                // on a computer. Plain PgUp = scroll up.
+                if (event.isShiftPressed) {
+                    sendCommand("hscroll", direction = 1f)
+                } else {
+                    sendCommand("scroll", direction = 1f)
+                }
                 true
             }
             KeyEvent.KEYCODE_PAGE_DOWN -> {
                 pendingPreKar = null
                 pendingPreKarAfterHasant = false
-                sendCommand("scroll", direction = -1f)
+                // Shift+PgDn = scroll sideways (right). Plain PgDn =
+                // scroll down.
+                if (event.isShiftPressed) {
+                    sendCommand("hscroll", direction = -1f)
+                } else {
+                    sendCommand("scroll", direction = -1f)
+                }
                 true
             }
             // Home / End: in a text field they move the text cursor
@@ -341,7 +355,11 @@ class ArrowCursorIME : InputMethodService() {
                 else {
                     pendingPreKar = null
                     pendingPreKarAfterHasant = false
-                    sendCommand("scroll", direction = 1f)
+                    if (event.isShiftPressed) {
+                        sendCommand("hscroll", direction = 1f)
+                    } else {
+                        sendCommand("scroll", direction = 1f)
+                    }
                     true
                 }
             }
@@ -350,7 +368,11 @@ class ArrowCursorIME : InputMethodService() {
                 else {
                     pendingPreKar = null
                     pendingPreKarAfterHasant = false
-                    sendCommand("scroll", direction = -1f)
+                    if (event.isShiftPressed) {
+                        sendCommand("hscroll", direction = -1f)
+                    } else {
+                        sendCommand("scroll", direction = -1f)
+                    }
                     true
                 }
             }
