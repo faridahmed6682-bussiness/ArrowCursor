@@ -1,0 +1,258 @@
+package com.farid.arrowcursor
+
+import android.accessibilityservice.AccessibilityService
+import android.accessibilityservice.GestureDescription
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
+import android.content.Context
+import android.content.Intent
+import android.content.SharedPreferences
+import android.graphics.Path
+import android.graphics.PixelFormat
+import android.os.Build
+import android.view.KeyEvent
+import android.view.WindowManager
+import android.view.accessibility.AccessibilityEvent
+import android.view.accessibility.AccessibilityNodeInfo
+import androidx.core.app.NotificationCompat
+import androidx.core.app.NotificationManagerCompat
+
+class ArrowCursorService : AccessibilityService() {
+
+    private lateinit var settings: CursorSettings
+    private var overlayView: CursorOverlayView? = null
+    private var windowManager: WindowManager? = null
+    private var overlayAdded = false
+
+    private val prefsListener =
+        SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+            if (key == CursorSettings.KEY_CURSOR_ENABLED ||
+                key == CursorSettings.KEY_SPEED ||
+                key == CursorSettings.KEY_SIZE ||
+                key == CursorSettings.KEY_COLOR
+            ) {
+                updateOverlayState()
+            }
+        }
+
+    override fun onServiceConnected() {
+        super.onServiceConnected()
+        settings = CursorSettings(this)
+        settings.registerListener(prefsListener)
+
+        windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
+        overlayView = CursorOverlayView(this)
+        applySettingsToOverlay()
+
+        if (settings.cursorEnabled) {
+            addOverlayView()
+        }
+        showNotification()
+    }
+
+    override fun onKeyEvent(event: KeyEvent): Boolean {
+        if (event.action != KeyEvent.ACTION_DOWN) return false
+        if (!settings.cursorEnabled) return false
+        if (settings.autoPause && isTypingTargetFocused()) return false
+
+        val speed = settings.speedPx.toFloat()
+        // `when` used as an expression: every branch ends in Boolean.
+        return when (event.keyCode) {
+            KeyEvent.KEYCODE_DPAD_UP -> {
+                moveCursor(0f, -speed)
+                sendKeyTest("UP")
+                true
+            }
+            KeyEvent.KEYCODE_DPAD_DOWN -> {
+                moveCursor(0f, speed)
+                sendKeyTest("DOWN")
+                true
+            }
+            KeyEvent.KEYCODE_DPAD_LEFT -> {
+                moveCursor(-speed, 0f)
+                sendKeyTest("LEFT")
+                true
+            }
+            KeyEvent.KEYCODE_DPAD_RIGHT -> {
+                moveCursor(speed, 0f)
+                sendKeyTest("RIGHT")
+                true
+            }
+            KeyEvent.KEYCODE_SPACE -> {
+                if (settings.clickKey == "space" || settings.clickKey == "both") {
+                    performClick()
+                    sendKeyTest("SPACE")
+                    true
+                } else {
+                    false
+                }
+            }
+            KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_DPAD_CENTER -> {
+                if (settings.clickKey == "enter" || settings.clickKey == "both") {
+                    performClick()
+                    sendKeyTest("ENTER")
+                    true
+                } else {
+                    false
+                }
+            }
+            else -> false
+        }
+    }
+
+    override fun onAccessibilityEvent(event: AccessibilityEvent?) {
+        // No-op: focus is checked at key-event time.
+    }
+
+    override fun onInterrupt() {
+        // No-op.
+    }
+
+    override fun onDestroy() {
+        removeOverlayView()
+        NotificationManagerCompat.from(this).cancel(NOTIFICATION_ID)
+        if (::settings.isInitialized) {
+            settings.unregisterListener(prefsListener)
+        }
+        super.onDestroy()
+    }
+
+    override fun onUnbind(intent: Intent?): Boolean {
+        removeOverlayView()
+        return super.onUnbind(intent)
+    }
+
+    private fun moveCursor(dx: Float, dy: Float) {
+        overlayView?.moveBy(dx, dy)
+    }
+
+    private fun performClick() {
+        val x = overlayView?.cursorX ?: return
+        val y = overlayView?.cursorY ?: return
+        val path = Path().apply { moveTo(x, y) }
+        val gesture = GestureDescription.Builder()
+            .addStroke(GestureDescription.StrokeDescription(path, 0, 50))
+            .build()
+        dispatchGesture(gesture, null, null)
+    }
+
+    private fun isTypingTargetFocused(): Boolean {
+        return try {
+            val root = rootInActiveWindow ?: return false
+            val focused = root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT) ?: return false
+            focused.isEditable ||
+                (focused.className?.toString()?.contains("EditText") == true)
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    private fun sendKeyTest(name: String) {
+        sendBroadcast(Intent(ACTION_KEY_TEST).putExtra(EXTRA_KEY_NAME, name))
+    }
+
+    private fun applySettingsToOverlay() {
+        overlayView?.let { view ->
+            view.setCursorSizeDp(settings.sizeDp.toFloat())
+            view.setCursorColor(settings.cursorColor)
+        }
+    }
+
+    private fun addOverlayView() {
+        if (overlayAdded) return
+        val view = overlayView ?: return
+        val wm = windowManager ?: return
+        val params = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.MATCH_PARENT,
+            WindowManager.LayoutParams.MATCH_PARENT,
+            WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
+                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+            PixelFormat.TRANSLUCENT,
+        )
+        wm.addView(view, params)
+        overlayAdded = true
+    }
+
+    private fun removeOverlayView() {
+        if (!overlayAdded) return
+        val view = overlayView ?: return
+        val wm = windowManager ?: return
+        try {
+            wm.removeView(view)
+        } catch (e: IllegalArgumentException) {
+            // View was already removed.
+        }
+        overlayAdded = false
+    }
+
+    private fun updateOverlayState() {
+        if (!::settings.isInitialized) return
+        if (settings.cursorEnabled) {
+            applySettingsToOverlay()
+            addOverlayView()
+        } else {
+            removeOverlayView()
+        }
+        showNotification()
+    }
+
+    private fun showNotification() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val channel = NotificationChannel(
+                CHANNEL_ID,
+                getString(R.string.notification_title),
+                NotificationManager.IMPORTANCE_LOW,
+            )
+            val notificationManager =
+                getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            notificationManager.createNotificationChannel(channel)
+        }
+
+        val enabled = if (::settings.isInitialized) settings.cursorEnabled else false
+        val notification = NotificationCompat.Builder(this, CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_cursor)
+            .setContentTitle(getString(R.string.notification_title))
+            .setContentText(
+                if (enabled) {
+                    getString(R.string.notification_text_on)
+                } else {
+                    getString(R.string.notification_text_off)
+                },
+            )
+            .setOngoing(true)
+            .setContentIntent(
+                PendingIntent.getActivity(
+                    this,
+                    0,
+                    Intent(this, MainActivity::class.java),
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+                ),
+            )
+            .addAction(
+                0,
+                if (enabled) {
+                    getString(R.string.notification_action_disable)
+                } else {
+                    getString(R.string.notification_action_enable)
+                },
+                PendingIntent.getBroadcast(
+                    this,
+                    0,
+                    Intent("com.farid.arrowcursor.TOGGLE_CURSOR"),
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+                ),
+            )
+            .build()
+        NotificationManagerCompat.from(this).notify(NOTIFICATION_ID, notification)
+    }
+
+    companion object {
+        const val ACTION_KEY_TEST = "com.farid.arrowcursor.KEY_TEST"
+        const val EXTRA_KEY_NAME = "key_name"
+        const val NOTIFICATION_ID = 1001
+        const val CHANNEL_ID = "arrow_cursor_channel"
+    }
+}
