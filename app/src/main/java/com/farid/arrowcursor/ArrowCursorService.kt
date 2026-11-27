@@ -222,6 +222,39 @@ class ArrowCursorService : AccessibilityService() {
         updateHandlePosition()
     }
 
+    // The overlay view's top-left corner in screen coordinates. The
+    // overlay is MATCH_PARENT + FLAG_LAYOUT_IN_SCREEN, so this is
+    // normally (0,0) — but if the system insets the window below the
+    // status bar, the pointer is DRAWN that far down while the
+    // accessibility nodes and the injected gestures use SCREEN
+    // coordinates. Every click/scroll must therefore use the pointer's
+    // SCREEN position (overlay position + this offset), or the click
+    // lands a status-bar-height away from where the pointer is seen.
+    // (User, 2026-11-28: "pointer stays in one place, click happens
+    // in another place".)
+    private fun overlayScreenOffset(): Pair<Float, Float> {
+        val loc = IntArray(2)
+        overlayView?.getLocationOnScreen(loc)
+        return loc[0].toFloat() to loc[1].toFloat()
+    }
+
+    private fun pointerScreenX(): Float {
+        val (ox, _) = overlayScreenOffset()
+        return (overlayView?.cursorX ?: 0f) + ox
+    }
+
+    private fun pointerScreenY(): Float {
+        val (_, oy) = overlayScreenOffset()
+        return (overlayView?.cursorY ?: 0f) + oy
+    }
+
+    // Move the pointer so its TIP lands on the given SCREEN point
+    // (a node's centre from getBoundsInScreen, a drag target, ...).
+    private fun moveCursorToScreen(x: Float, y: Float) {
+        val (ox, oy) = overlayScreenOffset()
+        moveCursorTo(x - ox, y - oy)
+    }
+
     // --- Smooth pointer movement (like a computer's Mouse Keys) ---
     // Holding an arrow key used to jump the pointer by a fixed step on
     // every key-repeat event, which feels jerky. Instead, while a key is
@@ -302,14 +335,17 @@ class ArrowCursorService : AccessibilityService() {
 
     private fun snapToNearestButton() {
         if (!settings.snapToButton) return
-        val x = overlayView?.cursorX ?: return
-        val y = overlayView?.cursorY ?: return
+        val x = pointerScreenX()
+        val y = pointerScreenY()
         val node = findNearestClickable(x, y, SNAP_RADIUS_PX) ?: return
         val bounds = android.graphics.Rect()
         node.getBoundsInScreen(bounds)
         node.recycle()
         if (bounds.width() <= 0 || bounds.height() <= 0) return
-        moveCursorTo(bounds.centerX().toFloat(), bounds.centerY().toFloat())
+        // The node's centre is a SCREEN point; land the pointer tip
+        // on it (not the overlay position, which is offset by the
+        // window inset, if any).
+        moveCursorToScreen(bounds.centerX().toFloat(), bounds.centerY().toFloat())
     }
 
     /**
@@ -350,8 +386,10 @@ class ArrowCursorService : AccessibilityService() {
     }
 
     private fun performClick() {
-        val x = overlayView?.cursorX ?: return
-        val y = overlayView?.cursorY ?: return
+        // Click where the pointer TIP is seen on screen, not the
+        // overlay position (see overlayScreenOffset).
+        val x = pointerScreenX()
+        val y = pointerScreenY()
         // Most reliable: activate the accessibility node under the
         // pointer directly (no injected touch, so nothing can swallow
         // it). Falls back to a tap gesture for things that are not
@@ -461,8 +499,8 @@ class ArrowCursorService : AccessibilityService() {
         // Scrolling cancels a pending snap: the page moves under the
         // pointer, so snapping now would fight the scroll.
         cancelSnap()
-        val x = overlayView?.cursorX ?: return
-        val y = overlayView?.cursorY ?: return
+        val x = pointerScreenX()
+        val y = pointerScreenY()
         if (scrollNodeAt(x, y, forward = direction < 0f)) return
         val distance = resources.displayMetrics.heightPixels * 0.4f * direction
         performSwipe(0f, distance)
@@ -478,8 +516,8 @@ class ArrowCursorService : AccessibilityService() {
         if (remaining <= 0) return
         // Same as performScroll: scrolling cancels a pending snap.
         cancelSnap()
-        val x = overlayView?.cursorX ?: return
-        val y = overlayView?.cursorY ?: return
+        val x = pointerScreenX()
+        val y = pointerScreenY()
         if (scrollNodeAt(x, y, forward)) {
             gestureHandler.postDelayed({ scrollToEdge(forward, remaining - 1) }, 90)
         } else {
@@ -492,9 +530,15 @@ class ArrowCursorService : AccessibilityService() {
     /**
      * Scrolls the deepest scrollable node under the point (deepest first,
      * so a nested list wins over its parent). Returns true if a node
-     * actually scrolled.
+     * actually scrolled. For a sideways scroll only a node that really
+     * scrolls sideways is tried (see isHorizontallyScrollable).
      */
-    private fun scrollNodeAt(x: Float, y: Float, forward: Boolean): Boolean {
+    private fun scrollNodeAt(
+        x: Float,
+        y: Float,
+        forward: Boolean,
+        horizontal: Boolean = false,
+    ): Boolean {
         val root = rootInActiveWindow ?: return false
         val action = if (forward) {
             AccessibilityNodeInfo.ACTION_SCROLL_FORWARD
@@ -502,7 +546,7 @@ class ArrowCursorService : AccessibilityService() {
             AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD
         }
         val candidates = ArrayList<AccessibilityNodeInfo>()
-        collectScrollableNodesAt(root, x.toInt(), y.toInt(), candidates)
+        collectScrollableNodesAt(root, x.toInt(), y.toInt(), candidates, horizontal)
         var ok = false
         for (node in candidates) {
             if (node.performAction(action)) {
@@ -521,35 +565,64 @@ class ArrowCursorService : AccessibilityService() {
         x: Int,
         y: Int,
         out: MutableList<AccessibilityNodeInfo>,
+        horizontal: Boolean,
     ) {
         val bounds = android.graphics.Rect()
         node.getBoundsInScreen(bounds)
         if (!bounds.contains(x, y)) return
         for (i in 0 until node.childCount) {
             val child = node.getChild(i) ?: continue
-            collectScrollableNodesAt(child, x, y, out)
+            collectScrollableNodesAt(child, x, y, out, horizontal)
             // Do not recycle a child that was collected (the caller
             // recycles it after use); recycle the rest to avoid leaks.
             if (!out.contains(child)) child.recycle()
         }
-        if (node.isScrollable) out.add(node)
+        if (node.isScrollable) {
+            // For a sideways scroll only a node whose content actually
+            // runs past its left/right edge counts: a vertical list
+            // would otherwise swallow the action and scroll up/down.
+            if (!horizontal || isHorizontallyScrollable(node)) out.add(node)
+        }
+    }
+
+    /**
+     * True if the node's content extends beyond its left or right edge
+     * (a page or item sitting off-screen to the side) — i.e. the node
+     * scrolls sideways. A vertical list's items are full-width, so they
+     * do not extend past the edges and it is correctly excluded.
+     */
+    private fun isHorizontallyScrollable(node: AccessibilityNodeInfo): Boolean {
+        val bounds = android.graphics.Rect()
+        node.getBoundsInScreen(bounds)
+        for (i in 0 until node.childCount) {
+            val child = node.getChild(i) ?: continue
+            val cb = android.graphics.Rect()
+            child.getBoundsInScreen(cb)
+            child.recycle()
+            if (cb.left < bounds.left || cb.right > bounds.right) return true
+        }
+        return false
     }
 
     private fun performHorizontalScroll(direction: Float) {
         // Scrolling cancels a pending snap, same as vertical scroll.
         cancelSnap()
-        val x = overlayView?.cursorX ?: return
-        val y = overlayView?.cursorY ?: return
-        // Node scroll first (instant): forward = scroll right (see
-        // content on the right) = swipe left = direction -1.
-        if (scrollNodeAt(x, y, forward = direction < 0f)) return
+        val x = pointerScreenX()
+        val y = pointerScreenY()
+        // Node scroll first (instant), but ONLY on a node that really
+        // scrolls sideways: on the app drawer the list under the
+        // pointer is a VERTICAL RecyclerView, and ACTION_SCROLL_FORWARD
+        // on it scrolls DOWN instead of sideways — so Shift+PgDn did
+        // nothing sideways in v1.0.18. With no sideways node, the
+        // horizontal swipe below does it (home-screen pages, carousels).
+        if (scrollNodeAt(x, y, forward = direction < 0f, horizontal = true)) return
         val distance = resources.displayMetrics.widthPixels * 0.4f * direction
         performSwipe(distance, 0f)
     }
 
     private fun performSwipe(dx: Float, dy: Float) {
-        val x = overlayView?.cursorX ?: return
-        val y = overlayView?.cursorY ?: return
+        val x = pointerScreenX()
+        val y = pointerScreenY()
         val width = resources.displayMetrics.widthPixels.toFloat()
         val height = resources.displayMetrics.heightPixels.toFloat()
         val startX = x.coerceIn(120f, width - 120f)
@@ -732,8 +805,11 @@ class ArrowCursorService : AccessibilityService() {
         val handle = pointerHandleView ?: return
         val params = handleParams ?: return
         val half = (36 * resources.displayMetrics.density).toInt()
-        val x = overlayView?.cursorX ?: return
-        val y = overlayView?.cursorY ?: return
+        // The handle is a window positioned in SCREEN coordinates
+        // (gravity TOP|START), so centre it on the pointer's SCREEN
+        // position, not its overlay position (see overlayScreenOffset).
+        val x = pointerScreenX()
+        val y = pointerScreenY()
         params.x = (x - half).toInt()
         params.y = (y - half).toInt()
         try {
@@ -749,13 +825,16 @@ class ArrowCursorService : AccessibilityService() {
                 dragDownX = event.rawX
                 dragDownY = event.rawY
                 dragDownTime = event.eventTime
-                dragStartCursorX = overlayView?.cursorX ?: event.rawX
-                dragStartCursorY = overlayView?.cursorY ?: event.rawY
+                // rawX/rawY are SCREEN coordinates, so the drag start
+                // is the pointer's SCREEN position (see
+                // overlayScreenOffset).
+                dragStartCursorX = pointerScreenX()
+                dragStartCursorY = pointerScreenY()
             }
             MotionEvent.ACTION_MOVE -> {
                 val dx = event.rawX - dragDownX
                 val dy = event.rawY - dragDownY
-                moveCursorTo(dragStartCursorX + dx, dragStartCursorY + dy)
+                moveCursorToScreen(dragStartCursorX + dx, dragStartCursorY + dy)
             }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                 val dx = event.rawX - dragDownX
@@ -767,7 +846,7 @@ class ArrowCursorService : AccessibilityService() {
                     distance < 30f && duration < 300L -> performClick()
                     velocity > 1000f && duration < 350L && distance > 120f -> {
                         // Fast flick: scroll, pointer stays where it was.
-                        moveCursorTo(dragStartCursorX, dragStartCursorY)
+                        moveCursorToScreen(dragStartCursorX, dragStartCursorY)
                         if (kotlin.math.abs(dy) > kotlin.math.abs(dx)) {
                             performScroll(if (dy < 0) -1f else 1f)
                         } else {
