@@ -66,6 +66,18 @@ class ArrowCursorIME : InputMethodService() {
         sendCommand("longPress")
     }
 
+    // Modifier keys are tracked by hand as well as read from the event:
+    // on this keyboard the Ctrl/Shift/Alt meta state does not always
+    // arrive on the NEXT key's own event, so Ctrl+arrow was read as a
+    // plain arrow (the pointer moved, the page never changed — user,
+    // 2026-11-28). Tracking the modifier's own key-down / key-up makes
+    // Ctrl+arrow scroll, Shift+arrow fine-step and Alt+Shift switch
+    // language reliably. Cleared on key-up and in onFinishInput, so a
+    // missed key-up can never leave a modifier stuck on.
+    private var ctrlDown = false
+    private var shiftDown = false
+    private var altDown = false
+
     override fun onCreate() {
         super.onCreate()
         settings = CursorSettings(this)
@@ -88,6 +100,12 @@ class ArrowCursorIME : InputMethodService() {
         super.onFinishInput()
         pendingPreKar = null
         pendingPreKarAfterHasant = false
+        // Safety: if a modifier key was held when the input session
+        // ended, its key-up may never arrive — clear the tracked
+        // modifiers so none of them can stay stuck on.
+        ctrlDown = false
+        shiftDown = false
+        altDown = false
         // Safety: if Space was held when the input session ended, its
         // key-up may never arrive — drop the pending long-press so it
         // cannot fire later, and stop any smooth glide.
@@ -120,11 +138,43 @@ class ArrowCursorIME : InputMethodService() {
         if (event.action != KeyEvent.ACTION_DOWN) {
             return super.onKeyDown(keyCode, event)
         }
+        // Track the modifier keys themselves (see the fields above). A
+        // modifier pressed alone does nothing except Alt+Shift, which
+        // toggles the typing language; the key itself passes through
+        // to the system. This runs before everything else, so a held
+        // modifier is known even when the next key's event carries no
+        // meta state.
+        when (keyCode) {
+            KeyEvent.KEYCODE_CTRL_LEFT, KeyEvent.KEYCODE_CTRL_RIGHT -> {
+                ctrlDown = true
+                return super.onKeyDown(keyCode, event)
+            }
+            KeyEvent.KEYCODE_SHIFT_LEFT, KeyEvent.KEYCODE_SHIFT_RIGHT -> {
+                shiftDown = true
+                if (event.isAltPressed || altDown) {
+                    toggleLanguage()
+                    return true
+                }
+                return super.onKeyDown(keyCode, event)
+            }
+            KeyEvent.KEYCODE_ALT_LEFT, KeyEvent.KEYCODE_ALT_RIGHT -> {
+                altDown = true
+                if (event.isShiftPressed || shiftDown) {
+                    toggleLanguage()
+                    return true
+                }
+                return super.onKeyDown(keyCode, event)
+            }
+            KeyEvent.KEYCODE_LANGUAGE_SWITCH -> {
+                toggleLanguage()
+                return true
+            }
+        }
         // Ctrl+B toggles the typing language (Bengali / English), so
         // it can be switched with one hand while typing (user,
         // 2026-11-28). Checked BEFORE the Ctrl pass-through below, so
         // it works even while a text field is focused.
-        if (event.isCtrlPressed && keyCode == KeyEvent.KEYCODE_B) {
+        if ((event.isCtrlPressed || ctrlDown) && keyCode == KeyEvent.KEYCODE_B) {
             toggleLanguage()
             return true
         }
@@ -180,8 +230,8 @@ class ArrowCursorIME : InputMethodService() {
         // word, as on a computer (handled by the pass-through above and
         // the Shift pre-check below).
         fun arrowAction(event: KeyEvent): String = when {
-            event.isShiftPressed -> settings.shiftArrowAction
-            event.isCtrlPressed -> settings.ctrlArrowAction
+            (event.isShiftPressed || shiftDown) -> settings.shiftArrowAction
+            (event.isCtrlPressed || ctrlDown) -> settings.ctrlArrowAction
             else -> "move"
         }
         // Ctrl+arrow (and Ctrl+numpad-arrow) while NOT typing is a
@@ -189,7 +239,7 @@ class ArrowCursorIME : InputMethodService() {
         // shortcut — let it fall through to the when below. In a text
         // field Ctrl+arrow still passes through (word jump / selection),
         // as before.
-        val isCtrlArrow = event.isCtrlPressed && !typing && (
+        val isCtrlArrow = (event.isCtrlPressed || ctrlDown) && !typing && (
             keyCode == KeyEvent.KEYCODE_DPAD_UP ||
                 keyCode == KeyEvent.KEYCODE_DPAD_DOWN ||
                 keyCode == KeyEvent.KEYCODE_DPAD_LEFT ||
@@ -201,18 +251,8 @@ class ArrowCursorIME : InputMethodService() {
             )
         // Never swallow system shortcuts (Ctrl+Space switches keyboards,
         // Ctrl+C/V copy/paste, ...).
-        if ((event.isCtrlPressed || event.isMetaPressed) && !isCtrlArrow) {
+        if (((event.isCtrlPressed || ctrlDown) || event.isMetaPressed) && !isCtrlArrow) {
             return super.onKeyDown(keyCode, event)
-        }
-        // Alt+Shift switches the language, like Windows. Either order.
-        if ((keyCode == KeyEvent.KEYCODE_SHIFT_LEFT ||
-                keyCode == KeyEvent.KEYCODE_SHIFT_RIGHT) && event.isAltPressed ||
-            (keyCode == KeyEvent.KEYCODE_ALT_LEFT ||
-                keyCode == KeyEvent.KEYCODE_ALT_RIGHT) && event.isShiftPressed ||
-            keyCode == KeyEvent.KEYCODE_LANGUAGE_SWITCH
-        ) {
-            toggleLanguage()
-            return true
         }
         // Diagnostic: report Space/Enter receipt to the Home screen, so
         // it is visible whether the key reaches this keyboard at all
@@ -234,7 +274,7 @@ class ArrowCursorIME : InputMethodService() {
         // Shift+arrow in a text field selects text (computer-like); it
         // does not scroll or move the pointer. Same for Shift+PgUp/PgDn
         // (selects to the top/bottom of the visible text).
-        if (event.isShiftPressed && typing) {
+        if ((event.isShiftPressed || shiftDown) && typing) {
             when (keyCode) {
                 KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN,
                 KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT,
@@ -246,7 +286,7 @@ class ArrowCursorIME : InputMethodService() {
 
         // Bengali (Jatiya) typing from the hardware keyboard.
         if (language == "bn" && typing) {
-            val jatiya = jatiyaForKey(keyCode, event.isShiftPressed)
+            val jatiya = jatiyaForKey(keyCode, (event.isShiftPressed || shiftDown))
             if (jatiya != null) {
                 commitJatiya(jatiya)
                 return true
@@ -341,7 +381,7 @@ class ArrowCursorIME : InputMethodService() {
                 pendingPreKarAfterHasant = false
                 // Shift+PgUp = scroll sideways (left), like Shift+wheel
                 // on a computer. Plain PgUp = scroll up.
-                if (event.isShiftPressed) {
+                if ((event.isShiftPressed || shiftDown)) {
                     sendCommand("hscroll", direction = 1f)
                 } else {
                     sendCommand("scroll", direction = 1f)
@@ -353,7 +393,7 @@ class ArrowCursorIME : InputMethodService() {
                 pendingPreKarAfterHasant = false
                 // Shift+PgDn = scroll sideways (right). Plain PgDn =
                 // scroll down.
-                if (event.isShiftPressed) {
+                if ((event.isShiftPressed || shiftDown)) {
                     sendCommand("hscroll", direction = -1f)
                 } else {
                     sendCommand("scroll", direction = -1f)
@@ -453,7 +493,7 @@ class ArrowCursorIME : InputMethodService() {
                 else {
                     pendingPreKar = null
                     pendingPreKarAfterHasant = false
-                    if (event.isShiftPressed) {
+                    if ((event.isShiftPressed || shiftDown)) {
                         sendCommand("hscroll", direction = 1f)
                     } else {
                         sendCommand("scroll", direction = 1f)
@@ -466,7 +506,7 @@ class ArrowCursorIME : InputMethodService() {
                 else {
                     pendingPreKar = null
                     pendingPreKarAfterHasant = false
-                    if (event.isShiftPressed) {
+                    if ((event.isShiftPressed || shiftDown)) {
                         sendCommand("hscroll", direction = -1f)
                     } else {
                         sendCommand("scroll", direction = -1f)
@@ -488,6 +528,22 @@ class ArrowCursorIME : InputMethodService() {
     }
 
     override fun onKeyUp(keyCode: Int, event: KeyEvent): Boolean {
+        // Release a tracked modifier (see the fields above). A modifier
+        // released alone does nothing else.
+        when (keyCode) {
+            KeyEvent.KEYCODE_CTRL_LEFT, KeyEvent.KEYCODE_CTRL_RIGHT -> {
+                ctrlDown = false
+                return super.onKeyUp(keyCode, event)
+            }
+            KeyEvent.KEYCODE_SHIFT_LEFT, KeyEvent.KEYCODE_SHIFT_RIGHT -> {
+                shiftDown = false
+                return super.onKeyUp(keyCode, event)
+            }
+            KeyEvent.KEYCODE_ALT_LEFT, KeyEvent.KEYCODE_ALT_RIGHT -> {
+                altDown = false
+                return super.onKeyUp(keyCode, event)
+            }
+        }
         return when (keyCode) {
             // Releasing an arrow stops the smooth glide on that axis.
             KeyEvent.KEYCODE_DPAD_UP -> {

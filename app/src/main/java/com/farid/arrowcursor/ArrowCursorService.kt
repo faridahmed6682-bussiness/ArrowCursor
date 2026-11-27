@@ -571,6 +571,31 @@ class ArrowCursorService : AccessibilityService() {
      * actually scrolled. For a sideways scroll only a node that really
      * scrolls sideways is tried (see isHorizontallyScrollable).
      */
+    /**
+     * Scroll the deepest scrollable node under the point, trying the
+     * actions the node actually implements, in order.
+     *
+     * Why this order (research, 2026-11-28): a home-screen pager is a
+     * PAGE container, not a plain scroller. The Android docs say such
+     * a container should use ACTION_PAGE_LEFT / ACTION_PAGE_RIGHT
+     * (ViewPager2 uses page actions), and ACTION_SCROLL_FORWARD alone
+     * does nothing on it — that is why the sideways scroll never
+     * changed the home page even though the gesture fallback existed.
+     * So for a sideways scroll the page actions come first, then the
+     * directional scroll actions, then the generic forward/backward.
+     * For a vertical scroll the directional actions come first, then
+     * the page actions, then forward/backward. performAction returns
+     * false for an action the node does not support, so trying them in
+     * order is safe.
+     *
+     * The generic forward/backward is only tried on a node that is
+     * actually horizontally scrollable: on a vertical list, FORWARD
+     * scrolls DOWN, so trying it for a sideways request would scroll
+     * the wrong way (the v1.0.18 app-drawer bug). A node that is not
+     * horizontally scrollable only gets the sideways-specific actions
+     * (page + directional), which a vertical list does not implement,
+     * so it is safely skipped.
+     */
     private fun scrollNodeAt(
         x: Float,
         y: Float,
@@ -578,18 +603,41 @@ class ArrowCursorService : AccessibilityService() {
         horizontal: Boolean = false,
     ): Boolean {
         val root = rootInActiveWindow ?: return false
-        val action = if (forward) {
-            AccessibilityNodeInfo.ACTION_SCROLL_FORWARD
-        } else {
-            AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD
-        }
         val candidates = ArrayList<AccessibilityNodeInfo>()
-        collectScrollableNodesAt(root, x.toInt(), y.toInt(), candidates, horizontal)
+        collectScrollableNodesAt(root, x.toInt(), y.toInt(), candidates)
+        // Action IDs, in the order to try them. The page/directional
+        // actions are AccessibilityAction objects; .id is their int id
+        // for performAction. FORWARD/BACKWARD are plain int constants.
+        val pageAction: Int
+        val dirAction: Int
+        val genericAction: Int
+        if (horizontal) {
+            if (forward) {
+                pageAction = AccessibilityNodeInfo.AccessibilityAction.ACTION_PAGE_RIGHT.id
+                dirAction = AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_RIGHT.id
+                genericAction = AccessibilityNodeInfo.ACTION_SCROLL_FORWARD
+            } else {
+                pageAction = AccessibilityNodeInfo.AccessibilityAction.ACTION_PAGE_LEFT.id
+                dirAction = AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_LEFT.id
+                genericAction = AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD
+            }
+        } else {
+            if (forward) {
+                pageAction = AccessibilityNodeInfo.AccessibilityAction.ACTION_PAGE_DOWN.id
+                dirAction = AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_DOWN.id
+                genericAction = AccessibilityNodeInfo.ACTION_SCROLL_FORWARD
+            } else {
+                pageAction = AccessibilityNodeInfo.AccessibilityAction.ACTION_PAGE_UP.id
+                dirAction = AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_UP.id
+                genericAction = AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD
+            }
+        }
         var ok = false
         for (node in candidates) {
-            if (node.performAction(action)) {
-                ok = true
-                break
+            if (node.performAction(pageAction)) { ok = true; break }
+            if (node.performAction(dirAction)) { ok = true; break }
+            if (!horizontal || isHorizontallyScrollable(node)) {
+                if (node.performAction(genericAction)) { ok = true; break }
             }
         }
         for (node in candidates) node.recycle()
@@ -603,24 +651,22 @@ class ArrowCursorService : AccessibilityService() {
         x: Int,
         y: Int,
         out: MutableList<AccessibilityNodeInfo>,
-        horizontal: Boolean,
     ) {
         val bounds = android.graphics.Rect()
         node.getBoundsInScreen(bounds)
         if (!bounds.contains(x, y)) return
         for (i in 0 until node.childCount) {
             val child = node.getChild(i) ?: continue
-            collectScrollableNodesAt(child, x, y, out, horizontal)
+            collectScrollableNodesAt(child, x, y, out)
             // Do not recycle a child that was collected (the caller
             // recycles it after use); recycle the rest to avoid leaks.
             if (!out.contains(child)) child.recycle()
         }
-        if (node.isScrollable) {
-            // For a sideways scroll only a node whose content actually
-            // runs past its left/right edge counts: a vertical list
-            // would otherwise swallow the action and scroll up/down.
-            if (!horizontal || isHorizontallyScrollable(node)) out.add(node)
-        }
+        // Every scrollable node at the point is a candidate; scrollNodeAt
+        // decides per node which actions to try (a vertical list only
+        // gets the sideways-specific actions, never the generic FORWARD
+        // that would scroll it down — see scrollNodeAt).
+        if (node.isScrollable) out.add(node)
     }
 
     /**
