@@ -22,6 +22,8 @@ import android.widget.Toast
  *   character, Shift gives the second (j = ক, Shift+J = খ, g = ্ link
  *   key, f = া, ...), exactly like a computer keyboard.
  * - Alt+Shift switches the language (English / Bengali), like Windows.
+ *   Ctrl+B does the same, so the language can be switched with one
+ *   hand while typing (user, 2026-11-28).
  *
  * The user switches to this keyboard for mouse + typing, and back to
  * Bijoy/Gboard with Ctrl+Space or the keyboard icon in the navigation bar.
@@ -92,6 +94,14 @@ class ArrowCursorIME : InputMethodService() {
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
         if (event.action != KeyEvent.ACTION_DOWN) {
             return super.onKeyDown(keyCode, event)
+        }
+        // Ctrl+B toggles the typing language (Bengali / English), so
+        // it can be switched with one hand while typing (user,
+        // 2026-11-28). Checked BEFORE the Ctrl pass-through below, so
+        // it works even while a text field is focused.
+        if (event.isCtrlPressed && keyCode == KeyEvent.KEYCODE_B) {
+            toggleLanguage()
+            return true
         }
         // Never swallow system shortcuts (Ctrl+Space switches keyboards,
         // Ctrl+C/V copy/paste, ...).
