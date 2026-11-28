@@ -77,6 +77,10 @@ class ArrowCursorIME : InputMethodService() {
     private var ctrlDown = false
     private var shiftDown = false
     private var altDown = false
+    // True while a Shift tap could still become a click: set on Shift
+    // key-down, cleared if any other key is pressed while Shift is held
+    // (Shift is then a modifier, not a tap) or on Shift key-up.
+    private var shiftTapCandidate = false
 
     override fun onCreate() {
         super.onCreate()
@@ -106,6 +110,7 @@ class ArrowCursorIME : InputMethodService() {
         ctrlDown = false
         shiftDown = false
         altDown = false
+        shiftTapCandidate = false
         // Safety: if Space was held when the input session ended, its
         // key-up may never arrive — drop the pending long-press so it
         // cannot fire later, and stop any smooth glide.
@@ -147,20 +152,28 @@ class ArrowCursorIME : InputMethodService() {
         when (keyCode) {
             KeyEvent.KEYCODE_CTRL_LEFT, KeyEvent.KEYCODE_CTRL_RIGHT -> {
                 ctrlDown = true
+                // Shift held for a Ctrl+Shift combo is a modifier, not a tap.
+                if (shiftDown) shiftTapCandidate = false
                 return super.onKeyDown(keyCode, event)
             }
             KeyEvent.KEYCODE_SHIFT_LEFT, KeyEvent.KEYCODE_SHIFT_RIGHT -> {
                 shiftDown = true
                 if (event.isAltPressed || altDown) {
                     toggleLanguage()
+                    // Alt+Shift is a language switch, not a Shift tap.
+                    shiftTapCandidate = false
                     return true
                 }
+                // A Shift tap (press + release, no other key) clicks.
+                shiftTapCandidate = true
                 return super.onKeyDown(keyCode, event)
             }
             KeyEvent.KEYCODE_ALT_LEFT, KeyEvent.KEYCODE_ALT_RIGHT -> {
                 altDown = true
                 if (event.isShiftPressed || shiftDown) {
                     toggleLanguage()
+                    // Alt+Shift is a language switch, not a Shift tap.
+                    shiftTapCandidate = false
                     return true
                 }
                 return super.onKeyDown(keyCode, event)
@@ -170,6 +183,10 @@ class ArrowCursorIME : InputMethodService() {
                 return true
             }
         }
+        // Any other key pressed while Shift is held means Shift is a
+        // modifier for that key (fine step, text selection, capital
+        // letter), not a tap — so a later Shift release must not click.
+        if (shiftDown) shiftTapCandidate = false
         // Ctrl+B toggles the typing language (Bengali / English), so
         // it can be switched with one hand while typing (user,
         // 2026-11-28). Checked BEFORE the Ctrl pass-through below, so
@@ -550,6 +567,14 @@ class ArrowCursorIME : InputMethodService() {
             }
             KeyEvent.KEYCODE_SHIFT_LEFT, KeyEvent.KEYCODE_SHIFT_RIGHT -> {
                 shiftDown = false
+                // Tap Shift alone = click at the pointer (user,
+                // 2026-11-28). Only if no other key was pressed while
+                // Shift was held (shiftTapCandidate), so Shift+arrow /
+                // Shift+letter / Alt+Shift are untouched.
+                if (shiftTapCandidate) {
+                    shiftTapCandidate = false
+                    sendCommand("click")
+                }
                 return super.onKeyUp(keyCode, event)
             }
             KeyEvent.KEYCODE_ALT_LEFT, KeyEvent.KEYCODE_ALT_RIGHT -> {
