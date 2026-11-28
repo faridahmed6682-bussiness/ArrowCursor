@@ -82,6 +82,7 @@
     <string name="keymap_type">Type (English / Bengali Jatiya)</string>
     <string name="keymap_numpad_move">Move pointer (second mouse)</string>
     <string name="keymap_text_cursor">Move the text cursor (in a text field)</string>
+    <string name="keymap_app_drawer">Open the app drawer (on the home screen)</string>
     <string name="gemini_api_key_label">Gemini API key</string>
     <string name="gemini_api_key_hint">Paste your free Gemini API key (AIza…)</string>
     <string name="gemini_save_key">Save key</string>

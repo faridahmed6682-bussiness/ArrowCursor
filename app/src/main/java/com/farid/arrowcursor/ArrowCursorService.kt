@@ -84,6 +84,7 @@ class ArrowCursorService : AccessibilityService() {
                 "hscroll" -> performHorizontalScroll(
                     intent.getFloatExtra(EXTRA_DIRECTION, 0f),
                 )
+                "openDrawer" -> performOpenDrawer()
             }
         }
     }
@@ -749,6 +750,30 @@ class ArrowCursorService : AccessibilityService() {
             // as a scroll, and the app has time to follow it.
             // (durationMs is an Int; StrokeDescription takes a Long.)
             .addStroke(GestureDescription.StrokeDescription(path, 0, durationMs.toLong()))
+            .build()
+        dispatchPointerGesture(gesture, 250)
+    }
+
+    /**
+     * Open the app drawer (Alt+D, user 2026-11-28). On Samsung One UI
+     * Home the drawer opens on an upward swipe; there is no key for it,
+     * and Ctrl+Down only scrolls (the launcher pager swallows it as a
+     * page change). So this dispatches a deliberate upward swipe from
+     * near the bottom of the screen (85% -> 15% of the height, 300 ms),
+     * starting at the screen centre — the gesture the launcher reads as
+     * "open the drawer". The pointer itself does not move.
+     */
+    private fun performOpenDrawer() {
+        cancelSnap()
+        val width = resources.displayMetrics.widthPixels.toFloat()
+        val height = resources.displayMetrics.heightPixels.toFloat()
+        val x = width / 2f
+        val path = Path().apply {
+            moveTo(x, height * 0.85f)
+            lineTo(x, height * 0.15f)
+        }
+        val gesture = GestureDescription.Builder()
+            .addStroke(GestureDescription.StrokeDescription(path, 0, 300L))
             .build()
         dispatchPointerGesture(gesture, 250)
     }

@@ -49,6 +49,7 @@ class KeyMapFragment : Fragment(R.layout.fragment_keymap) {
             "Numpad Enter" to getString(R.string.keymap_click),
             "Alt + Shift" to getString(R.string.keymap_switch_language),
             "Ctrl + B" to getString(R.string.keymap_switch_language),
+            "Alt + D" to getString(R.string.keymap_app_drawer),
             "Ctrl + C / V" to getString(R.string.keymap_copy_paste),
             "A–Z, 0–9" to getString(R.string.keymap_type),
         )

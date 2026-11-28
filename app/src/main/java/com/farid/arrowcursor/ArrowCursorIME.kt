@@ -180,6 +180,19 @@ class ArrowCursorIME : InputMethodService() {
         }
         val speed = settings.speedPx.toFloat()
         val typing = isTextFieldFocused()
+        // Alt+D opens the app drawer (user, 2026-11-28): on the home
+        // screen there is no key that opens it — Ctrl+Down only scrolls,
+        // and the launcher pager swallows it as a page change. Alt+D sends
+        // a deliberate upward swipe from the bottom of the screen, which
+        // is the gesture that opens the drawer. Only when NOT typing, so
+        // Alt+letter shortcuts in a text field are untouched; Shift held
+        // as well means a language-switch hold, so that is excluded too.
+        if ((event.isAltPressed || altDown) && !(event.isShiftPressed || shiftDown) &&
+            keyCode == KeyEvent.KEYCODE_D && !typing
+        ) {
+            sendCommand("openDrawer")
+            return true
+        }
         // Step sizes: plain arrow = normal step, Shift+arrow = fine
         // step (for small buttons) by default. What Shift+arrow and
         // Ctrl+arrow DO comes from Settings (defaults: Shift = fine,
