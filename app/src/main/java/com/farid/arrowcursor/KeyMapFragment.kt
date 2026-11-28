@@ -37,6 +37,7 @@ class KeyMapFragment : Fragment(R.layout.fragment_keymap) {
             "Space (tap)" to getString(R.string.keymap_click),
             "Space (hold 0.5 s)" to getString(R.string.keymap_long_press),
             "Enter" to getString(R.string.keymap_click),
+            "Enter (while typing)" to getString(R.string.keymap_send),
             "Shift (tap alone)" to getString(R.string.keymap_click),
             "PgUp / PgDn" to getString(R.string.keymap_scroll_up_down),
             "Shift + PgUp / PgDn" to getString(R.string.keymap_scroll_sideways),

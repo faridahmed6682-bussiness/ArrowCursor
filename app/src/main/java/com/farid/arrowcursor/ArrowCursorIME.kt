@@ -400,7 +400,21 @@ class ArrowCursorIME : InputMethodService() {
             KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_DPAD_CENTER -> {
                 if (typing) {
                     flushPendingPreKar()
-                    super.onKeyDown(keyCode, event)
+                    // Enter = send (user, 2026-11-28): after typing, Enter
+                    // should do the send button's job in any app. Try the
+                    // send editor action first — messaging apps handle it
+                    // and send the message. Shift+Enter is a newline
+                    // (computer behaviour), so it skips the send. If the
+                    // app does not handle send, fall back to the field's
+                    // normal Enter behaviour (newline / its own action).
+                    val shiftHeld = event.isShiftPressed || shiftDown
+                    val ic = currentInputConnection
+                    val sent = !shiftHeld &&
+                        ic?.performEditorAction(EditorInfo.IME_ACTION_SEND) == true
+                    if (!sent) {
+                        super.onKeyDown(keyCode, event)
+                    }
+                    true
                 } else {
                     sendCommand("click")
                     true

@@ -63,6 +63,7 @@
     <string name="keymap_numpad_move">পয়েন্টার নাড়ানো (দ্বিতীয় মাউস)</string>
     <string name="keymap_text_cursor">টেক্সট কার্সর নাড়ানো (টেক্সট ফিল্ডে)</string>
     <string name="keymap_app_drawer">অ্যাপ ড্রয়ার খোলা (হোম স্ক্রিনে)</string>
+    <string name="keymap_send">পাঠানো (সেন্ড বাটনের কাজ)</string>
     <string name="gemini_api_key_label">Gemini API Key</string>
     <string name="gemini_api_key_hint">ফ্রি Gemini API Key বসান (AIza…)</string>
     <string name="gemini_save_key">Key সংরক্ষণ করুন</string>
