@@ -722,14 +722,38 @@ class ArrowCursorService : AccessibilityService() {
         // horizontal fling below does it (home-screen pages, carousels).
         if (scrollNodeAt(x, y, forward = direction < 0f, horizontal = true)) return
         // No sideways node found (the launcher's pager often exposes no
-        // sideways node at all). Fall back to a deliberate swipe across
-        // most of the screen: long enough (60% of the width) and slow
-        // enough (200 ms) to read as a page change, not a tap, but fast
-        // enough not to be taken as dragging an app icon. The 120 ms
-        // fling in v1.0.22 was too quick to register on the home screen
-        // (user, 2026-11-28).
-        val distance = resources.displayMetrics.widthPixels * 0.6f * direction
-        performSwipe(distance, 0f, durationMs = 200)
+        // sideways node at all). Fall back to a page swipe from the
+        // CENTRE of the screen, not from the pointer: a page change is a
+        // launcher-level gesture, and a swipe starting on an app icon
+        // reads as dragging that icon, while a swipe starting on the
+        // empty area below the grid (where the pointer often sits in the
+        // drawer) is outside the pager's touch area, so the launcher
+        // ignores it — that is why the drawer would not scroll sideways
+        // (user, 2026-11-28). The centre is always on the page content.
+        performPageSwipe(direction, durationMs = 200)
+    }
+
+    /**
+     * Swipe to change a page (home screen / app drawer), starting from
+     * the centre of the screen. See performHorizontalScroll for why the
+     * swipe must not start at the pointer. 60% of the width, 200 ms: a
+     * deliberate page change, not a tap and not an icon drag.
+     */
+    private fun performPageSwipe(direction: Float, durationMs: Int = 200) {
+        val width = resources.displayMetrics.widthPixels.toFloat()
+        val height = resources.displayMetrics.heightPixels.toFloat()
+        val startX = width / 2f
+        val startY = height / 2f
+        val distance = width * 0.6f * direction
+        val endX = (startX + distance).coerceIn(0f, width)
+        val path = Path().apply {
+            moveTo(startX, startY)
+            lineTo(endX, startY)
+        }
+        val gesture = GestureDescription.Builder()
+            .addStroke(GestureDescription.StrokeDescription(path, 0, durationMs.toLong()))
+            .build()
+        dispatchPointerGesture(gesture, 250)
     }
 
     private fun performSwipe(dx: Float, dy: Float, durationMs: Int = 300) {
